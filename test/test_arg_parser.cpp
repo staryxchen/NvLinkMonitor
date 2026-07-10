@@ -36,6 +36,7 @@ TEST(MonitorArgs, Defaults) {
     EXPECT_DOUBLE_EQ(args.interval, 1.0);
     EXPECT_TRUE(args.continuous);
     EXPECT_FALSE(args.verbose);
+    EXPECT_EQ(args.format, OutputFormat::Text);
     EXPECT_TRUE(args.outputFilename.empty());
     EXPECT_FALSE(args.helpRequested);
 }
@@ -152,6 +153,54 @@ TEST(MonitorArgs, ContinuousTrue) {
     EXPECT_TRUE(args.continuous);
 }
 
+TEST(MonitorArgs, FormatDefaultIsText) {
+    Argv a{"nvlink_monitor"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.format, OutputFormat::Text);
+}
+
+TEST(MonitorArgs, FormatTextExplicit) {
+    Argv a{"nvlink_monitor", "--format", "text"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.format, OutputFormat::Text);
+}
+
+TEST(MonitorArgs, FormatCsvShort) {
+    Argv a{"nvlink_monitor", "-f", "csv"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.format, OutputFormat::CSV);
+}
+
+TEST(MonitorArgs, FormatCsvLong) {
+    Argv a{"nvlink_monitor", "--format", "csv"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.format, OutputFormat::CSV);
+}
+
+TEST(MonitorArgs, FormatJsonLong) {
+    Argv a{"nvlink_monitor", "--format", "json"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.format, OutputFormat::JSON);
+}
+
+TEST(MonitorArgs, FormatInvalidRejected) {
+    Argv a{"nvlink_monitor", "--format", "yaml"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_FALSE(args.ok);
+    EXPECT_FALSE(args.errorMessage.empty());
+}
+
+TEST(MonitorArgs, FormatMissingValueRejected) {
+    Argv a{"nvlink_monitor", "--format"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_FALSE(args.ok);
+}
+
 TEST(MonitorArgs, UnknownOptionRejected) {
     Argv a{"nvlink_monitor", "--bogus"};
     auto args = parseMonitorArgs(a.argc(), a.argv());
@@ -159,10 +208,12 @@ TEST(MonitorArgs, UnknownOptionRejected) {
 }
 
 TEST(MonitorArgs, CombinedOptions) {
-    Argv a{"nvlink_monitor", "-v", "-i", "0.5", "-o", "out.log"};
+    Argv a{"nvlink_monitor", "-v",       "-i", "0.5", "-o",
+           "out.log",        "--format", "csv"};
     auto args = parseMonitorArgs(a.argc(), a.argv());
     EXPECT_TRUE(args.ok);
     EXPECT_TRUE(args.verbose);
     EXPECT_DOUBLE_EQ(args.interval, 0.5);
     EXPECT_EQ(args.outputFilename, "out.log");
+    EXPECT_EQ(args.format, OutputFormat::CSV);
 }

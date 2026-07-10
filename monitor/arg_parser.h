@@ -3,11 +3,19 @@
 
 #include <string>
 
+// Output format for nvlink_monitor.
+//   Text - human-readable (default)
+//   CSV  - machine-readable: header + one row per (gpu, link) per sample
+//   JSON - JSONL: one self-contained JSON object per sample
+//   (streaming-friendly)
+enum class OutputFormat { Text, CSV, JSON };
+
 // Parsed command-line arguments for nvlink_monitor.
 struct MonitorCliArgs {
     double interval = 1.0;
     bool continuous = true;
     bool verbose = false;
+    OutputFormat format = OutputFormat::Text;
     std::string outputFilename;
     bool helpRequested = false;
     bool ok = true;

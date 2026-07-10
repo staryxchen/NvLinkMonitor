@@ -17,8 +17,8 @@ std::vector<GPUMonitorResult> calculateBandwidth(
         GPUMonitorResult result;
         result.gpuId = s2.gpuId;
         result.nvLinkCount = s2.nvLinkCount;
-        result.totalTxGBps = 0.0;
-        result.totalRxGBps = 0.0;
+        result.totalTxGiBps = 0.0;
+        result.totalRxGiBps = 0.0;
 
         for (size_t j = 0; j < s2.links.size(); j++) {
             if (j >= s1.links.size()) continue;
@@ -50,23 +50,22 @@ std::vector<GPUMonitorResult> calculateBandwidth(
                 rxDelta = 0;
             }
 
-            // Convert KiB directly to GiB/s
-            // NVML returns KiB, convert directly to GiB/s
-            double txGiBps =
+            // Convert KiB directly to GiB/s (NVML counters are in KiB)
+            double txRate =
                 static_cast<double>(txDelta) / (timeDelta * 1024.0 * 1024.0);
-            double rxGiBps =
+            double rxRate =
                 static_cast<double>(rxDelta) / (timeDelta * 1024.0 * 1024.0);
 
             NvLinkData linkData;
             linkData.linkId = link2.linkId;
-            linkData.txGBps = txGiBps;
-            linkData.rxGBps = rxGiBps;
+            linkData.txGiBps = txRate;
+            linkData.rxGiBps = rxRate;
             linkData.txBytes = link2.txBytes;
             linkData.rxBytes = link2.rxBytes;
 
             result.links.push_back(linkData);
-            result.totalTxGBps += txGiBps;
-            result.totalRxGBps += rxGiBps;
+            result.totalTxGiBps += txRate;
+            result.totalRxGiBps += rxRate;
         }
 
         results.push_back(result);

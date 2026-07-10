@@ -10,8 +10,8 @@ NvLinkData makeLink(unsigned int id, unsigned long long tx,
     l.linkId = id;
     l.txBytes = tx;
     l.rxBytes = rx;
-    l.txGBps = 0.0;
-    l.rxGBps = 0.0;
+    l.txGiBps = 0.0;
+    l.rxGiBps = 0.0;
     return l;
 }
 
@@ -20,8 +20,8 @@ GPUMonitorResult makeGpu(const std::string& id, unsigned int linkCount,
     GPUMonitorResult r;
     r.gpuId = id;
     r.nvLinkCount = linkCount;
-    r.totalTxGBps = 0.0;
-    r.totalRxGBps = 0.0;
+    r.totalTxGiBps = 0.0;
+    r.totalRxGiBps = 0.0;
     r.links = links;
     return r;
 }
@@ -34,10 +34,10 @@ TEST(CalculateBandwidth, PositiveDelta) {
     auto s2 = makeGpu("0", 1, {makeLink(0, 1048576ULL, 0)});
     auto r = calculateBandwidth({s1}, {s2}, 1.0, false);
     ASSERT_EQ(r.size(), 1u);
-    EXPECT_NEAR(r[0].links[0].txGBps, 1.0, 1e-9);
-    EXPECT_NEAR(r[0].links[0].rxGBps, 0.0, 1e-9);
-    EXPECT_NEAR(r[0].totalTxGBps, 1.0, 1e-9);
-    EXPECT_NEAR(r[0].totalRxGBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].txGiBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].rxGiBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].totalTxGiBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].totalRxGiBps, 0.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, ZeroDelta) {
@@ -45,9 +45,9 @@ TEST(CalculateBandwidth, ZeroDelta) {
     auto s2 = makeGpu("0", 1, {makeLink(0, 500, 500)});
     auto r = calculateBandwidth({s1}, {s2}, 1.0, false);
     ASSERT_EQ(r.size(), 1u);
-    EXPECT_NEAR(r[0].links[0].txGBps, 0.0, 1e-9);
-    EXPECT_NEAR(r[0].links[0].rxGBps, 0.0, 1e-9);
-    EXPECT_NEAR(r[0].totalTxGBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].txGiBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].rxGiBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].totalTxGiBps, 0.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, CounterOverflowClampedToZero) {
@@ -56,9 +56,9 @@ TEST(CalculateBandwidth, CounterOverflowClampedToZero) {
     auto s2 = makeGpu("0", 1, {makeLink(0, 100, 100)});
     auto r = calculateBandwidth({s1}, {s2}, 1.0, false);
     ASSERT_EQ(r.size(), 1u);
-    EXPECT_NEAR(r[0].links[0].txGBps, 0.0, 1e-9);
-    EXPECT_NEAR(r[0].links[0].rxGBps, 0.0, 1e-9);
-    EXPECT_NEAR(r[0].totalTxGBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].txGiBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].rxGiBps, 0.0, 1e-9);
+    EXPECT_NEAR(r[0].totalTxGiBps, 0.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, MultiLinkAggregation) {
@@ -67,10 +67,10 @@ TEST(CalculateBandwidth, MultiLinkAggregation) {
                       {makeLink(0, 1048576ULL, 0), makeLink(1, 0, 1048576ULL)});
     auto r = calculateBandwidth({s1}, {s2}, 1.0, false);
     ASSERT_EQ(r.size(), 1u);
-    EXPECT_NEAR(r[0].links[0].txGBps, 1.0, 1e-9);
-    EXPECT_NEAR(r[0].links[1].rxGBps, 1.0, 1e-9);
-    EXPECT_NEAR(r[0].totalTxGBps, 1.0, 1e-9);
-    EXPECT_NEAR(r[0].totalRxGBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].txGiBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].links[1].rxGiBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].totalTxGiBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].totalRxGiBps, 1.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, MismatchedGpuCountDropsExtra) {
@@ -91,7 +91,7 @@ TEST(CalculateBandwidth, MismatchedLinkCountDropsExtra) {
     auto r = calculateBandwidth({s1}, {s2}, 1.0, false);
     ASSERT_EQ(r.size(), 1u);
     ASSERT_EQ(r[0].links.size(), 1u);
-    EXPECT_NEAR(r[0].totalTxGBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].totalTxGiBps, 1.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, MultiGpuTotals) {
@@ -101,8 +101,8 @@ TEST(CalculateBandwidth, MultiGpuTotals) {
     auto s2b = makeGpu("1", 1, {makeLink(0, 1048576ULL, 0)});
     auto r = calculateBandwidth({s1a, s1b}, {s2a, s2b}, 1.0, false);
     ASSERT_EQ(r.size(), 2u);
-    EXPECT_NEAR(r[0].totalTxGBps, 1.0, 1e-9);
-    EXPECT_NEAR(r[1].totalTxGBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[0].totalTxGiBps, 1.0, 1e-9);
+    EXPECT_NEAR(r[1].totalTxGiBps, 1.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, TimeDeltaAffectsRate) {
@@ -111,7 +111,7 @@ TEST(CalculateBandwidth, TimeDeltaAffectsRate) {
     auto s2 = makeGpu("0", 1, {makeLink(0, 1048576ULL, 0)});
     auto r = calculateBandwidth({s1}, {s2}, 0.5, false);
     ASSERT_EQ(r.size(), 1u);
-    EXPECT_NEAR(r[0].links[0].txGBps, 2.0, 1e-9);
+    EXPECT_NEAR(r[0].links[0].txGiBps, 2.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, PreservesSnapshotBytes) {

@@ -1,5 +1,8 @@
 #include "nvlink_monitor.h"
 
+#include "arg_parser.h"
+#include "bandwidth_calc.h"
+
 #include <stdexcept>
 #include <sched.h>
 
@@ -191,71 +194,8 @@ std::ostream& NvLinkMonitor::getOutputStream() {
 std::vector<GPUMonitorResult> NvLinkMonitor::calculateBandwidth(
     const std::vector<GPUMonitorResult>& snapshot1,
     const std::vector<GPUMonitorResult>& snapshot2, double timeDelta) {
-    std::vector<GPUMonitorResult> results;
-
-    for (size_t i = 0; i < snapshot2.size(); i++) {
-        if (i >= snapshot1.size()) continue;
-
-        const auto& s1 = snapshot1[i];
-        const auto& s2 = snapshot2[i];
-
-        GPUMonitorResult result;
-        result.gpuId = s2.gpuId;
-        result.nvLinkCount = s2.nvLinkCount;
-        result.totalTxGBps = 0.0;
-        result.totalRxGBps = 0.0;
-
-        for (size_t j = 0; j < s2.links.size(); j++) {
-            if (j >= s1.links.size()) continue;
-
-            const auto& link1 = s1.links[j];
-            const auto& link2 = s2.links[j];
-
-            // Calculate byte differences (NVML returns KiB, convert to bytes)
-            long long txDelta = static_cast<long long>(link2.txBytes) -
-                                static_cast<long long>(link1.txBytes);
-            long long rxDelta = static_cast<long long>(link2.rxBytes) -
-                                static_cast<long long>(link1.rxBytes);
-
-            // Handle overflow cases with detailed logging
-            if (txDelta < 0) {
-                if (verboseOutput) {
-                    std::cerr << "Warning: TX counter overflow detected on GPU " 
-                              << s2.gpuId << " Link " << link2.linkId << std::endl;
-                }
-                txDelta = 0;
-            }
-            if (rxDelta < 0) {
-                if (verboseOutput) {
-                    std::cerr << "Warning: RX counter overflow detected on GPU " 
-                              << s2.gpuId << " Link " << link2.linkId << std::endl;
-                }
-                rxDelta = 0;
-            }
-
-            // Convert KiB directly to GiB/s
-            // NVML returns KiB, convert directly to GiB/s
-            double txGiBps = static_cast<double>(txDelta) /
-                             (timeDelta * 1024.0 * 1024.0);
-            double rxGiBps = static_cast<double>(rxDelta) /
-                             (timeDelta * 1024.0 * 1024.0);
-
-            NvLinkData linkData;
-            linkData.linkId = link2.linkId;
-            linkData.txGBps = txGiBps;
-            linkData.rxGBps = rxGiBps;
-            linkData.txBytes = link2.txBytes;
-            linkData.rxBytes = link2.rxBytes;
-
-            result.links.push_back(linkData);
-            result.totalTxGBps += txGiBps;
-            result.totalRxGBps += rxGiBps;
-        }
-
-        results.push_back(result);
-    }
-
-    return results;
+    return ::calculateBandwidth(snapshot1, snapshot2, timeDelta,
+                                verboseOutput);
 }
 
 void NvLinkMonitor::formatGPUResult(
@@ -436,68 +376,16 @@ void printHelp(const char* programName) {
 }
 
 int main(int argc, char* argv[]) {
-    // Parse command line arguments
-    double interval = 1.0;
-    bool continuous = true;  // Default to continuous mode
-    bool verbose = false;
-    std::string outputFilename = "";  // Output file name
+    MonitorCliArgs args = parseMonitorArgs(argc, argv);
 
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-
-        // Help options
-        if (arg == "-h" || arg == "--help") {
-            printHelp(argv[0]);
-            return 0;
-        }
-        // Verbose options
-        else if (arg == "-v" || arg == "--verbose") {
-            verbose = true;
-        }
-        // Interval options
-        else if (arg == "-i" || arg == "--interval") {
-            if (i + 1 >= argc) {
-                std::cerr << "Error: Missing value for " << arg << std::endl;
-                printHelp(argv[0]);
-                return 1;
-            }
-            try {
-                interval = std::stod(argv[++i]);
-                if (interval <= 0) {
-                    std::cerr << "Error: Interval must be positive"
-                              << std::endl;
-                    return 1;
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "Error: Invalid interval value: " << argv[i]
-                          << std::endl;
-                return 1;
-            }
-        }
-        // Output file options
-        else if (arg == "-o" || arg == "--output") {
-            if (i + 1 >= argc) {
-                std::cerr << "Error: Missing filename for " << arg << std::endl;
-                printHelp(argv[0]);
-                return 1;
-            }
-            outputFilename = argv[++i];
-        }
-        // Continuous options
-        else if (arg == "-c" || arg == "--continuous") {
-            if (i + 1 < argc && (std::string(argv[i + 1]) == "true" ||
-                                 std::string(argv[i + 1]) == "false")) {
-                continuous = (std::string(argv[++i]) == "true");
-            } else {
-                continuous = true;  // Default to true if no value specified
-            }
-        }
-        // Unknown option
-        else {
-            std::cerr << "Error: Unknown option: " << arg << std::endl;
-            printHelp(argv[0]);
-            return 1;
-        }
+    if (args.helpRequested) {
+        printHelp(argv[0]);
+        return 0;
+    }
+    if (!args.ok) {
+        std::cerr << "Error: " << args.errorMessage << std::endl;
+        printHelp(argv[0]);
+        return 1;
     }
 
     // Setup signal handling
@@ -505,12 +393,12 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, signal_handler);
 
     try {
-        NvLinkMonitor monitor(verbose, outputFilename);
+        NvLinkMonitor monitor(args.verbose, args.outputFilename);
 
-        if (continuous) {
-            monitor.runContinuousMonitoring(interval);
+        if (args.continuous) {
+            monitor.runContinuousMonitoring(args.interval);
         } else {
-            monitor.runSingleMonitoring(interval);
+            monitor.runSingleMonitoring(args.interval);
         }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

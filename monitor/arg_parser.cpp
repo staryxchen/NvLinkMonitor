@@ -39,6 +39,25 @@ MonitorCliArgs parseMonitorArgs(int argc, char* argv[]) {
                 return args;
             }
             args.outputFilename = argv[++i];
+        } else if (arg == "-f" || arg == "--format") {
+            if (i + 1 >= argc) {
+                args.ok = false;
+                args.errorMessage = "Missing value for " + arg;
+                return args;
+            }
+            std::string f = argv[++i];
+            if (f == "text") {
+                args.format = OutputFormat::Text;
+            } else if (f == "csv") {
+                args.format = OutputFormat::CSV;
+            } else if (f == "json") {
+                args.format = OutputFormat::JSON;
+            } else {
+                args.ok = false;
+                args.errorMessage =
+                    "Invalid format: " + f + " (expected text, csv, or json)";
+                return args;
+            }
         } else if (arg == "-c" || arg == "--continuous") {
             if (i + 1 < argc && (std::string(argv[i + 1]) == "true" ||
                                  std::string(argv[i + 1]) == "false")) {

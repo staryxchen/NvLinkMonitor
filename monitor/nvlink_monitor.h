@@ -12,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+#include "arg_parser.h"
+
 // Global flag for signal handling. Uses sig_atomic_t (not bool) so that
 // writes from the async signal handler are well-defined per the C/C++
 // standard; the handler must stay async-signal-safe (no I/O, no allocations).
@@ -59,20 +61,25 @@ class NvLinkMonitor {
    private:
     std::vector<GPUData> gpus;
     std::vector<GPUMonitorResult> lastResults;
-    bool verboseOutput;        // Flag for detailed NvLink output
-    std::ofstream outputFile;  // Output file stream
-    bool fileOutput;           // Flag for file output
+    bool verboseOutput;         // Flag for detailed NvLink output
+    OutputFormat outputFormat;  // Output format (text/csv/json)
+    bool csvHeaderPrinted;      // Whether the CSV header has been emitted
+    std::ofstream outputFile;   // Output file stream
+    bool fileOutput;            // Flag for file output
 
    public:
     /**
      * @brief Constructor - initializes NVML and discovers GPUs
      * @param verbose Enable detailed NvLink output
+     * @param format Output format (text/csv/json)
      * @param outputFilename Optional output file name (empty for console
      * output)
      * @throws std::runtime_error if NVML initialization fails or file cannot be
      * opened
      */
-    NvLinkMonitor(bool verbose = false, const std::string& outputFilename = "");
+    NvLinkMonitor(bool verbose = false,
+                  OutputFormat format = OutputFormat::Text,
+                  const std::string& outputFilename = "");
 
     /**
      * @brief Destructor - shuts down NVML
@@ -112,6 +119,24 @@ class NvLinkMonitor {
      * @param results Vector of GPU monitoring results to display
      */
     void formatDetailedGPUResult(const std::vector<GPUMonitorResult>& results);
+
+    /**
+     * @brief Formats results as CSV (header once, then one row per gpu/link).
+     * Emits a per-gpu "total" row (link_id=total) plus one row per link.
+     * @param results Vector of GPU monitoring results to display
+     * @param interval Actual sampling interval in seconds
+     */
+    void formatCsvResult(const std::vector<GPUMonitorResult>& results,
+                         double interval);
+
+    /**
+     * @brief Formats results as a single JSONL line (one JSON object per
+     * sample). Streaming-friendly for continuous mode.
+     * @param results Vector of GPU monitoring results to display
+     * @param interval Actual sampling interval in seconds
+     */
+    void formatJsonResult(const std::vector<GPUMonitorResult>& results,
+                          double interval);
 
     /**
      * @brief Gets the output stream (file or console)

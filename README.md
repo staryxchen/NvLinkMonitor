@@ -136,11 +136,30 @@ A real-time monitoring tool for NVLink bandwidth and status.
 ./build/nvlink_monitor -v -o detailed.log
 ```
 
+#### Machine-readable output (CSV / JSON):
+```bash
+# CSV: header + one row per (gpu, link) per sample. A per-GPU "total" row
+# (link_id=total) is always emitted so a GPU with no active links still appears.
+./build/nvlink_monitor -f csv -o data.csv
+
+# JSONL: one self-contained JSON object per sample (streaming-friendly for
+# continuous mode). Each object carries per-GPU totals and per-link arrays.
+./build/nvlink_monitor --format json -o data.jsonl
+```
+
+Status/diagnostic messages (GPU discovery, "Starting continuous monitoring",
+etc.) are written to **stderr**, so stdout only contains clean CSV/JSON data —
+pipe or redirect stdout directly for analysis:
+```bash
+./build/nvlink_monitor -f csv 2>/dev/null | awk -F, '$4=="total"{print}'
+```
+
 #### 📋 Available options:
 - `-c, --continuous [true|false]`: Run in continuous mode (default: true)
 - `-i, --interval <seconds>`: Set custom monitoring interval in seconds (supports decimals, default: 1.0)
 - `-v, --verbose`: Enable detailed NvLink output (shows individual link bandwidth)
 - `-o, --output <filename>`: Redirect output to file
+- `-f, --format text|csv|json`: Output format (default: text). CSV and JSON are machine-readable; `--verbose` only affects the text path
 - `-h, --help`: Show help information
 
 **Note:** The interval parameter supports decimal values (e.g., 0.5 for 500ms, 0.1 for 100ms). The minimum practical interval is 1 microsecond (0.000001s), but very small intervals may affect system performance.

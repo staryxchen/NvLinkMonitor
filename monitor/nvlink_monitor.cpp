@@ -2,10 +2,22 @@
 
 #include <sched.h>
 
+#include <sstream>
 #include <stdexcept>
 
 #include "arg_parser.h"
 #include "bandwidth_calc.h"
+
+// Formats the current local time per the given strftime-style format string.
+// Used by the CSV/JSON formatters for ISO 8601 timestamps.
+static std::string formatNow(const char* fmt) {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    auto tm = *std::localtime(&time_t);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, fmt);
+    return oss.str();
+}
 
 // Global flag for signal handling. sig_atomic_t guarantees that writes from
 // the signal handler are well-defined. The handler only flips this flag — it
@@ -22,8 +34,12 @@ void signal_handler(int signal) {
 }
 
 // NvLinkMonitor constructor
-NvLinkMonitor::NvLinkMonitor(bool verbose, const std::string& outputFilename)
-    : verboseOutput(verbose), fileOutput(!outputFilename.empty()) {
+NvLinkMonitor::NvLinkMonitor(bool verbose, OutputFormat format,
+                             const std::string& outputFilename)
+    : verboseOutput(verbose),
+      outputFormat(format),
+      csvHeaderPrinted(false),
+      fileOutput(!outputFilename.empty()) {
     // Initialize NVML
     nvmlReturn_t result = nvmlInit();
     if (result != NVML_SUCCESS) {
@@ -63,7 +79,7 @@ void NvLinkMonitor::discoverGPUs() {
         return;
     }
 
-    std::cout << "Found " << deviceCount << " GPU(s)" << std::endl;
+    std::cerr << "Found " << deviceCount << " GPU(s)" << std::endl;
 
     for (unsigned int i = 0; i < deviceCount; i++) {
         nvmlDevice_t device;
@@ -108,7 +124,7 @@ void NvLinkMonitor::discoverGPUs() {
         gpu.nvLinkCount = nvLinkCount;
 
         gpus.push_back(gpu);
-        std::cout << "GPU " << i << ": " << name << " (UUID: " << uuid << ") - "
+        std::cerr << "GPU " << i << ": " << name << " (UUID: " << uuid << ") - "
                   << nvLinkCount << " NvLinks" << std::endl;
     }
 }
@@ -266,10 +282,59 @@ void NvLinkMonitor::formatDetailedGPUResult(
     }
 }
 
+void NvLinkMonitor::formatCsvResult(
+    const std::vector<GPUMonitorResult>& results, double interval) {
+    auto& os = getOutputStream();
+    if (!csvHeaderPrinted) {
+        os << "timestamp,interval_s,gpu_id,link_id,tx_gibps,rx_gibps\n";
+        csvHeaderPrinted = true;
+    }
+    // ISO 8601 (no spaces) so the field never needs quoting.
+    std::string ts = formatNow("%Y-%m-%dT%H:%M:%S");
+    os << std::fixed;
+    for (const auto& gpu : results) {
+        // Per-GPU total row (link_id=total); always emitted so a GPU with no
+        // active links still appears in the output.
+        os << ts << "," << std::setprecision(6) << interval << "," << gpu.gpuId
+           << ",total," << std::setprecision(3) << gpu.totalTxGiBps << ","
+           << gpu.totalRxGiBps << "\n";
+        for (const auto& link : gpu.links) {
+            os << ts << "," << std::setprecision(6) << interval << ","
+               << gpu.gpuId << "," << link.linkId << "," << std::setprecision(3)
+               << link.txGiBps << "," << link.rxGiBps << "\n";
+        }
+    }
+}
+
+void NvLinkMonitor::formatJsonResult(
+    const std::vector<GPUMonitorResult>& results, double interval) {
+    // One self-contained JSON object per line (JSONL) for streaming.
+    auto& os = getOutputStream();
+    std::string ts = formatNow("%Y-%m-%dT%H:%M:%S");
+    os << std::fixed;
+    os << "{\"ts\":\"" << ts << "\",\"interval_s\":" << std::setprecision(6)
+       << interval << ",\"gpus\":[";
+    for (size_t i = 0; i < results.size(); i++) {
+        const auto& gpu = results[i];
+        if (i > 0) os << ",";
+        os << "{\"id\":\"" << gpu.gpuId
+           << "\",\"tx_gibps\":" << std::setprecision(3) << gpu.totalTxGiBps
+           << ",\"rx_gibps\":" << gpu.totalRxGiBps << ",\"links\":[";
+        for (size_t j = 0; j < gpu.links.size(); j++) {
+            const auto& link = gpu.links[j];
+            if (j > 0) os << ",";
+            os << "{\"id\":" << link.linkId << ",\"tx_gibps\":" << link.txGiBps
+               << ",\"rx_gibps\":" << link.rxGiBps << "}";
+        }
+        os << "]}";
+    }
+    os << "]}\n";
+}
+
 void NvLinkMonitor::runContinuousMonitoring(double interval) {
-    std::cout << "Starting continuous monitoring, interval: " << interval << "s"
+    std::cerr << "Starting continuous monitoring, interval: " << interval << "s"
               << std::endl;
-    std::cout << "Press Ctrl+C to stop monitoring" << std::endl;
+    std::cerr << "Press Ctrl+C to stop monitoring" << std::endl;
 
 // Set high priority for more accurate timing
 #ifdef _GNU_SOURCE
@@ -277,7 +342,7 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
     struct sched_param param;
     param.sched_priority = sched_get_priority_max(SCHED_FIFO);
     if (sched_setscheduler(0, SCHED_FIFO, &param) == 0) {
-        std::cout << "Set real-time scheduling priority for improved accuracy"
+        std::cerr << "Set real-time scheduling priority for improved accuracy"
                   << std::endl;
     }
 #endif
@@ -325,14 +390,27 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
         auto results =
             calculateBandwidth(lastSnapshot, currentSnapshot, actualInterval);
 
-        // Add timing precision information in verbose mode
-        if (verboseOutput) {
-            formatDetailedGPUResult(results);
-            getOutputStream()
-                << "  [Timing: " << std::fixed << std::setprecision(6)
-                << actualInterval << "s]" << std::endl;
-        } else {
-            formatGPUResult(results);
+        // Dispatch on output format. CSV/JSON always emit per-link data
+        // (structured output is already "detailed"); --verbose only affects
+        // the text path.
+        switch (outputFormat) {
+            case OutputFormat::CSV:
+                formatCsvResult(results, actualInterval);
+                break;
+            case OutputFormat::JSON:
+                formatJsonResult(results, actualInterval);
+                break;
+            case OutputFormat::Text:
+            default:
+                if (verboseOutput) {
+                    formatDetailedGPUResult(results);
+                    getOutputStream()
+                        << "  [Timing: " << std::fixed << std::setprecision(6)
+                        << actualInterval << "s]" << std::endl;
+                } else {
+                    formatGPUResult(results);
+                }
+                break;
         }
 
         lastSnapshot = currentSnapshot;
@@ -341,10 +419,10 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
 }
 
 void NvLinkMonitor::runSingleMonitoring(double interval) {
-    std::cout << "Getting first snapshot..." << std::endl;
+    std::cerr << "Getting first snapshot..." << std::endl;
     auto snapshot1 = getNvLinkData();
 
-    std::cout << "Waiting " << interval << "s to get second snapshot..."
+    std::cerr << "Waiting " << interval << "s to get second snapshot..."
               << std::endl;
     // Use microsecond precision for sleep to improve timing accuracy
     std::this_thread::sleep_for(
@@ -353,10 +431,21 @@ void NvLinkMonitor::runSingleMonitoring(double interval) {
     auto snapshot2 = getNvLinkData();
     auto results = calculateBandwidth(snapshot1, snapshot2, interval);
 
-    if (verboseOutput) {
-        formatDetailedGPUResult(results);
-    } else {
-        formatGPUResult(results);
+    switch (outputFormat) {
+        case OutputFormat::CSV:
+            formatCsvResult(results, interval);
+            break;
+        case OutputFormat::JSON:
+            formatJsonResult(results, interval);
+            break;
+        case OutputFormat::Text:
+        default:
+            if (verboseOutput) {
+                formatDetailedGPUResult(results);
+            } else {
+                formatGPUResult(results);
+            }
+            break;
     }
 }
 
@@ -376,6 +465,9 @@ void printHelp(const char* programName) {
         << std::endl;
     std::cout << "  -o, --output <filename>       : Redirect output to file"
               << std::endl;
+    std::cout
+        << "  -f, --format text|csv|json    : Output format (default: text)"
+        << std::endl;
     std::cout << "  -h, --help                    : Show this help message"
               << std::endl;
     std::cout << std::endl;
@@ -400,6 +492,11 @@ void printHelp(const char* programName) {
     std::cout << "  " << programName
               << " -v -o detailed.log        # Verbose output to file"
               << std::endl;
+    std::cout << "  " << programName
+              << " -f csv -o data.csv        # CSV output to file" << std::endl;
+    std::cout << "  " << programName
+              << " --format json -o data.jsonl # JSONL output to file"
+              << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -420,7 +517,7 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, signal_handler);
 
     try {
-        NvLinkMonitor monitor(args.verbose, args.outputFilename);
+        NvLinkMonitor monitor(args.verbose, args.format, args.outputFilename);
 
         if (args.continuous) {
             monitor.runContinuousMonitoring(args.interval);
@@ -432,11 +529,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Printed from the main thread (not the signal handler) because std::cout
+    // Printed from the main thread (not the signal handler) because std::cerr
     // is not async-signal-safe. The handler only flips g_running; this covers
-    // both continuous and single monitoring modes uniformly.
+    // both continuous and single monitoring modes uniformly. Goes to stderr so
+    // it never corrupts CSV/JSON data on stdout.
     if (!g_running) {
-        std::cout << "\nReceived stop signal, exiting..." << std::endl;
+        std::cerr << "\nReceived stop signal, exiting..." << std::endl;
     }
 
     return 0;

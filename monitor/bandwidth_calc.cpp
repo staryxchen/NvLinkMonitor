@@ -32,20 +32,29 @@ std::vector<GPUMonitorResult> calculateBandwidth(
             long long rxDelta = static_cast<long long>(link2.rxBytes) -
                                 static_cast<long long>(link1.rxBytes);
 
-            // Handle overflow cases with detailed logging
+            // A negative delta means the counter went backwards. The NVML
+            // throughput counters are 64-bit KiB values (~8 EiB wrap range),
+            // so genuine arithmetic overflow is effectively impossible — a
+            // negative delta almost always indicates the driver reset the
+            // counter (e.g. on certain driver events). No meaningful rate can
+            // be computed across a reset, so we clamp to 0 for this sample
+            // and warn so the user can filter reset samples out of steady-
+            // state averages rather than treating them as idle links.
             if (txDelta < 0) {
                 if (verbose) {
-                    std::cerr << "Warning: TX counter overflow detected on GPU "
+                    std::cerr << "Warning: TX counter reset detected on GPU "
                               << s2.gpuId << " Link " << link2.linkId
-                              << std::endl;
+                              << " (delta=" << txDelta
+                              << "); sample rate set to 0" << std::endl;
                 }
                 txDelta = 0;
             }
             if (rxDelta < 0) {
                 if (verbose) {
-                    std::cerr << "Warning: RX counter overflow detected on GPU "
+                    std::cerr << "Warning: RX counter reset detected on GPU "
                               << s2.gpuId << " Link " << link2.linkId
-                              << std::endl;
+                              << " (delta=" << rxDelta
+                              << "); sample rate set to 0" << std::endl;
                 }
                 rxDelta = 0;
             }

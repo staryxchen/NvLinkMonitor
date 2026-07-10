@@ -50,8 +50,10 @@ TEST(CalculateBandwidth, ZeroDelta) {
     EXPECT_NEAR(r[0].totalTxGiBps, 0.0, 1e-9);
 }
 
-TEST(CalculateBandwidth, CounterOverflowClampedToZero) {
-    // s2 < s1 simulates counter overflow / wraparound.
+TEST(CalculateBandwidth, CounterResetClampedToZero) {
+    // s2 < s1 simulates a driver counter reset (the 64-bit KiB throughput
+    // counters don't realistically wrap, so a negative delta means reset).
+    // No meaningful rate can be computed across a reset, so it is clamped to 0.
     auto s1 = makeGpu("0", 1, {makeLink(0, 1000000, 1000000)});
     auto s2 = makeGpu("0", 1, {makeLink(0, 100, 100)});
     auto r = calculateBandwidth({s1}, {s2}, 1.0, false);
@@ -59,6 +61,16 @@ TEST(CalculateBandwidth, CounterOverflowClampedToZero) {
     EXPECT_NEAR(r[0].links[0].txGiBps, 0.0, 1e-9);
     EXPECT_NEAR(r[0].links[0].rxGiBps, 0.0, 1e-9);
     EXPECT_NEAR(r[0].totalTxGiBps, 0.0, 1e-9);
+}
+
+TEST(CalculateBandwidth, CounterResetVerboseWarningDoesNotCrash) {
+    // Verbose mode emits a warning for a reset but must still produce a valid
+    // zero-rate result (exercises the verbose stderr branch).
+    auto s1 = makeGpu("0", 1, {makeLink(0, 1000000, 0)});
+    auto s2 = makeGpu("0", 1, {makeLink(0, 100, 0)});
+    auto r = calculateBandwidth({s1}, {s2}, 1.0, true);
+    ASSERT_EQ(r.size(), 1u);
+    EXPECT_NEAR(r[0].links[0].txGiBps, 0.0, 1e-9);
 }
 
 TEST(CalculateBandwidth, MultiLinkAggregation) {

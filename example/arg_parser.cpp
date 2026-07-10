@@ -9,6 +9,10 @@
 
 namespace {
 
+// getopt_long val IDs for long-only options (no short form). Values > 255
+// avoid any collision with char-based short options (i/b/s/d/m/h).
+enum { OPT_DIRECTION = 1001, OPT_ALL_PAIRS = 1002 };
+
 // Parses a base-10 integer from `s` into `out`. Returns false and sets `err`
 // on parse failure (non-numeric trailing chars) or ERANGE overflow.
 bool parseLong(const char* s, long& out, std::string& err, const char* name) {
@@ -37,8 +41,8 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
         {"src-gpu", required_argument, 0, 's'},
         {"dst-gpu", required_argument, 0, 'd'},
         {"mode", required_argument, 0, 'm'},
-        {"direction", required_argument, 0, 1001},
-        {"all-pairs", no_argument, 0, 1002},
+        {"direction", required_argument, 0, OPT_DIRECTION},
+        {"all-pairs", no_argument, 0, OPT_ALL_PAIRS},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}};
 
@@ -127,7 +131,7 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
                 }
                 break;
             }
-            case 1001: {  // --direction
+            case OPT_DIRECTION: {  // --direction
                 std::string d = optarg;
                 if (d == "unidir") {
                     config.direction = Direction::Unidir;
@@ -141,7 +145,7 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
                 }
                 break;
             }
-            case 1002:  // --all-pairs
+            case OPT_ALL_PAIRS:  // --all-pairs
                 config.allPairs = true;
                 break;
             case 'h':

@@ -328,6 +328,28 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
         return;
     }
 
+    // Warmup: one untimed copy matching the selected mode to prime the CUDA
+    // context, copy engine / kernel launch path, and event infrastructure, so
+    // the first timed iteration is not skewed by one-time setup costs. The
+    // result is discarded; errors are already reported via cerr by the measure
+    // helpers, and we abort if the warmup itself fails.
+    double warmup_time;
+    if (mode == CopyMode::Kernel) {
+        warmup_time = measureCopyTimeKernel(
+            dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024, src_gpu);
+    } else {
+        warmup_time =
+            measureCopyTime(dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024,
+                            src_gpu, cudaMemcpyDeviceToDevice);
+    }
+    if (warmup_time <= 0) {
+        std::cerr << "Warmup copy failed; aborting test" << std::endl;
+        checkCudaErrorReturn(cudaFree(src_ptr), "Failed to free source memory");
+        checkCudaErrorReturn(cudaFree(dst_ptr),
+                             "Failed to free destination memory");
+        return;
+    }
+
     std::vector<double> copy_times;
 
     for (int i = 0; i < iterations; i++) {

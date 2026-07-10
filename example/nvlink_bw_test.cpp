@@ -8,6 +8,8 @@
 #include <getopt.h>
 #include <vector>
 
+#include "bw_stats.h"
+
 static bool checkCudaErrorReturn(cudaError_t result, const char *message) {
     if (result != cudaSuccess) {
         std::cerr << message << " (Error code: " << result << " - "
@@ -226,22 +228,22 @@ void testCopyPerformance(int src_gpu, int dst_gpu,
     }
     
     
-    if (!copy_times.empty()) {
-        double avg_time = std::accumulate(copy_times.begin(), copy_times.end(), 0.0) / copy_times.size();
-        double min_time = *std::min_element(copy_times.begin(), copy_times.end());
-        double max_time = *std::max_element(copy_times.begin(), copy_times.end());
-        
-        double avg_bandwidth_gbps = (buffer_size_mb / 1024.0) / (avg_time / 1000.0);
-        double min_bandwidth_gbps = (buffer_size_mb / 1024.0) / (max_time / 1000.0);
-        double max_bandwidth_gbps = (buffer_size_mb / 1024.0) / (min_time / 1000.0);
-        double avg_latency_ms = avg_time;
-        
+    BandwidthStats stats = computeBandwidthStats(copy_times, buffer_size_mb);
+    if (stats.valid) {
         std::cout << std::endl;
         std::cout << "Performance Results:" << std::endl;
-        std::cout << "   ├─ Average bandwidth: " << std::fixed << std::setprecision(2) << avg_bandwidth_gbps << " GB/s" << std::endl;
-        std::cout << "   ├─ Min bandwidth: " << std::fixed << std::setprecision(2) << min_bandwidth_gbps << " GB/s" << std::endl;
-        std::cout << "   ├─ Max bandwidth: " << std::fixed << std::setprecision(2) << max_bandwidth_gbps << " GB/s" << std::endl;
-        std::cout << "   └─ Average latency: " << std::fixed << std::setprecision(3) << avg_latency_ms << " ms" << std::endl;
+        std::cout << "   ├─ Average bandwidth: " << std::fixed
+                  << std::setprecision(2) << stats.avgGbps << " GB/s"
+                  << std::endl;
+        std::cout << "   ├─ Min bandwidth: " << std::fixed
+                  << std::setprecision(2) << stats.minGbps << " GB/s"
+                  << std::endl;
+        std::cout << "   ├─ Max bandwidth: " << std::fixed
+                  << std::setprecision(2) << stats.maxGbps << " GB/s"
+                  << std::endl;
+        std::cout << "   └─ Average latency: " << std::fixed
+                  << std::setprecision(3) << stats.avgLatencyMs << " ms"
+                  << std::endl;
     }
     
     checkCudaErrorReturn(cudaFree(src_ptr), "Failed to free source memory");

@@ -19,6 +19,10 @@ TEST_SOURCES = test/test_bandwidth_calc.cpp test/test_arg_parser.cpp test/test_b
                monitor/bandwidth_calc.cpp monitor/arg_parser.cpp example/bw_stats.cpp
 TEST_HEADERS = monitor/bandwidth_calc.h monitor/arg_parser.h example/bw_stats.h monitor/nvlink_monitor.h
 
+# Sources checked by clang-format (all C++ sources and headers)
+FORMAT_SOURCES = $(MONITOR_SOURCES) $(MONITOR_HEADERS) \
+                 $(EXAMPLE_SOURCES) $(EXAMPLE_HEADERS) test/*.cpp
+
 # Default target
 all: $(MONITOR_TARGET) $(EXAMPLE_TARGET)
 
@@ -51,4 +55,12 @@ test: $(TEST_TARGET)
 clean:
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all monitor example test clean
+# Apply clang-format in place to all sources
+format:
+	clang-format -i $(FORMAT_SOURCES)
+
+# Fail if any source is not clang-format-clean (for CI)
+check-format:
+	@clang-format --dry-run --Werror $(FORMAT_SOURCES)
+
+.PHONY: all monitor example test format check-format clean

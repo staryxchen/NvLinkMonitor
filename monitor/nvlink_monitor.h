@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -64,21 +65,28 @@ class NvLinkMonitor {
     bool verboseOutput;         // Flag for detailed NvLink output
     OutputFormat outputFormat;  // Output format (text/csv/json)
     bool csvHeaderPrinted;      // Whether the CSV header has been emitted
+    std::set<int> gpuFilter;    // Empty = monitor all; else only listed indices
     std::ofstream outputFile;   // Output file stream
     bool fileOutput;            // Flag for file output
+
+    // Returns true if the GPU with the given id string should be monitored.
+    // Empty filter => all GPUs; otherwise the id must be in the filter set.
+    bool isGpuSelected(const std::string& id) const;
 
    public:
     /**
      * @brief Constructor - initializes NVML and discovers GPUs
      * @param verbose Enable detailed NvLink output
      * @param format Output format (text/csv/json)
+     * @param gpuFilter Optional list of GPU indices to monitor (empty = all)
      * @param outputFilename Optional output file name (empty for console
      * output)
-     * @throws std::runtime_error if NVML initialization fails or file cannot be
-     * opened
+     * @throws std::runtime_error if NVML initialization fails, the file cannot
+     * be opened, or a filtered GPU id is out of range
      */
     NvLinkMonitor(bool verbose = false,
                   OutputFormat format = OutputFormat::Text,
+                  const std::vector<int>& gpuFilter = {},
                   const std::string& outputFilename = "");
 
     /**

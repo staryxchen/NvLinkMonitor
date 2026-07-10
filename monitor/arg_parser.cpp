@@ -1,5 +1,6 @@
 #include "arg_parser.h"
 
+#include <sstream>
 #include <string>
 
 MonitorCliArgs parseMonitorArgs(int argc, char* argv[]) {
@@ -56,6 +57,43 @@ MonitorCliArgs parseMonitorArgs(int argc, char* argv[]) {
                 args.ok = false;
                 args.errorMessage =
                     "Invalid format: " + f + " (expected text, csv, or json)";
+                return args;
+            }
+        } else if (arg == "-g" || arg == "--gpus") {
+            if (i + 1 >= argc) {
+                args.ok = false;
+                args.errorMessage = "Missing value for " + arg;
+                return args;
+            }
+            // Parse a comma-separated list of GPU indices, e.g. "0,1,3".
+            // Whitespace around tokens is tolerated.
+            std::string val = argv[++i];
+            std::string token;
+            std::istringstream iss(val);
+            while (std::getline(iss, token, ',')) {
+                // Trim leading/trailing whitespace.
+                size_t a = token.find_first_not_of(" \t");
+                size_t b = token.find_last_not_of(" \t");
+                if (a == std::string::npos) continue;  // skip empty token
+                token = token.substr(a, b - a + 1);
+                try {
+                    int id = std::stoi(token);
+                    if (id < 0) {
+                        args.ok = false;
+                        args.errorMessage =
+                            "Invalid GPU id (negative): " + token;
+                        return args;
+                    }
+                    args.gpuFilter.push_back(id);
+                } catch (const std::exception&) {
+                    args.ok = false;
+                    args.errorMessage = "Invalid GPU id: " + token;
+                    return args;
+                }
+            }
+            if (args.gpuFilter.empty()) {
+                args.ok = false;
+                args.errorMessage = "No valid GPU ids in: " + val;
                 return args;
             }
         } else if (arg == "-c" || arg == "--continuous") {

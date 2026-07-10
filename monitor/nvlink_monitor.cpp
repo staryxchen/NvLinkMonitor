@@ -35,10 +35,12 @@ void signal_handler(int signal) {
 
 // NvLinkMonitor constructor
 NvLinkMonitor::NvLinkMonitor(bool verbose, OutputFormat format,
+                             const std::vector<int>& gpuFilterVec,
                              const std::string& outputFilename)
     : verboseOutput(verbose),
       outputFormat(format),
       csvHeaderPrinted(false),
+      gpuFilter(gpuFilterVec.begin(), gpuFilterVec.end()),
       fileOutput(!outputFilename.empty()) {
     // Initialize NVML
     nvmlReturn_t result = nvmlInit();
@@ -60,6 +62,31 @@ NvLinkMonitor::NvLinkMonitor(bool verbose, OutputFormat format,
 
     // Discover GPUs
     discoverGPUs();
+
+    // Validate the GPU filter against discovered GPUs (after discovery so we
+    // know the valid id range). Throw on out-of-range ids so the user gets a
+    // clear error instead of silently monitoring nothing.
+    if (!gpuFilter.empty() && !gpus.empty()) {
+        int max_id = static_cast<int>(gpus.size()) - 1;
+        for (int id : gpuFilter) {
+            if (id < 0 || id > max_id) {
+                throw std::runtime_error("GPU id " + std::to_string(id) +
+                                         " out of range (0-" +
+                                         std::to_string(max_id) + ")");
+            }
+        }
+        std::cerr << "Monitoring " << gpuFilter.size() << " of " << gpus.size()
+                  << " GPU(s) (filter applied)" << std::endl;
+    }
+}
+
+bool NvLinkMonitor::isGpuSelected(const std::string& id) const {
+    if (gpuFilter.empty()) return true;  // no filter => all GPUs
+    try {
+        return gpuFilter.count(std::stoi(id)) > 0;
+    } catch (const std::exception&) {
+        return false;  // non-numeric id not in filter
+    }
 }
 
 // NvLinkMonitor destructor
@@ -133,6 +160,9 @@ std::vector<GPUMonitorResult> NvLinkMonitor::getNvLinkData() {
     std::vector<GPUMonitorResult> results;
 
     for (const auto& gpu : gpus) {
+        // Skip GPUs not in the --gpus filter (empty filter = all).
+        if (!isGpuSelected(gpu.id)) continue;
+
         GPUMonitorResult result;
         result.gpuId = gpu.id;
         result.nvLinkCount = gpu.nvLinkCount;
@@ -468,6 +498,9 @@ void printHelp(const char* programName) {
     std::cout
         << "  -f, --format text|csv|json    : Output format (default: text)"
         << std::endl;
+    std::cout
+        << "  -g, --gpus <id1,id2,...>      : Only monitor listed GPU indices"
+        << std::endl;
     std::cout << "  -h, --help                    : Show this help message"
               << std::endl;
     std::cout << std::endl;
@@ -497,6 +530,9 @@ void printHelp(const char* programName) {
     std::cout << "  " << programName
               << " --format json -o data.jsonl # JSONL output to file"
               << std::endl;
+    std::cout << "  " << programName
+              << " -g 0,1                     # Only monitor GPUs 0 and 1"
+              << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -517,7 +553,8 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, signal_handler);
 
     try {
-        NvLinkMonitor monitor(args.verbose, args.format, args.outputFilename);
+        NvLinkMonitor monitor(args.verbose, args.format, args.gpuFilter,
+                              args.outputFilename);
 
         if (args.continuous) {
             monitor.runContinuousMonitoring(args.interval);

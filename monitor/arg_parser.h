@@ -2,6 +2,7 @@
 #define NVLINK_MONITOR_ARG_PARSER_H
 
 #include <string>
+#include <vector>
 
 // Output format for nvlink_monitor.
 //   Text - human-readable (default)
@@ -16,6 +17,8 @@ struct MonitorCliArgs {
     bool continuous = true;
     bool verbose = false;
     OutputFormat format = OutputFormat::Text;
+    std::vector<int>
+        gpuFilter;  // Empty = monitor all GPUs; else only listed ids
     std::string outputFilename;
     bool helpRequested = false;
     bool ok = true;

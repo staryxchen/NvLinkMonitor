@@ -160,6 +160,7 @@ pipe or redirect stdout directly for analysis:
 - `-v, --verbose`: Enable detailed NvLink output (shows individual link bandwidth)
 - `-o, --output <filename>`: Redirect output to file
 - `-f, --format text|csv|json`: Output format (default: text). CSV and JSON are machine-readable; `--verbose` only affects the text path
+- `-g, --gpus <id1,id2,...>`: Only monitor the listed GPU indices (e.g. `-g 0,1,3`); default = all GPUs. Out-of-range ids are rejected at startup
 - `-h, --help`: Show help information
 
 **Note:** The interval parameter supports decimal values (e.g., 0.5 for 500ms, 0.1 for 100ms). The minimum practical interval is 1 microsecond (0.000001s), but very small intervals may affect system performance.

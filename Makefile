@@ -1,8 +1,8 @@
 CXX = g++
 CXXFLAGS = -std=c++11 -Wall -Wextra -O2
 NVML_LIB = /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
-CUDA_INCLUDE = -I/usr/local/cuda-12.9/targets/x86_64-linux/include
-CUDA_LIB = -L/usr/local/cuda-12.9/targets/x86_64-linux/lib -lcudart
+CUDA_INCLUDE = -I/usr/local/cuda/targets/x86_64-linux/include
+CUDA_LIB = -L/usr/local/cuda/targets/x86_64-linux/lib -lcudart
 
 BUILD_DIR = build
 MONITOR_TARGET = $(BUILD_DIR)/nvlink_monitor
@@ -18,7 +18,7 @@ all: $(MONITOR_TARGET) $(EXAMPLE_TARGET)
 # Compile the monitor program
 $(MONITOR_TARGET): $(MONITOR_SOURCES) $(MONITOR_HEADERS)
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $(MONITOR_TARGET) $(MONITOR_SOURCES) $(NVML_LIB)
+	$(CXX) $(CXXFLAGS) $(CUDA_INCLUDE) -o $(MONITOR_TARGET) $(MONITOR_SOURCES) $(NVML_LIB)
 
 # Compile the example program
 $(EXAMPLE_TARGET): $(EXAMPLE_SOURCES)

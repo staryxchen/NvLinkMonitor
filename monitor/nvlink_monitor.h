@@ -12,8 +12,10 @@
 #include <thread>
 #include <vector>
 
-// Global flag for signal handling
-extern volatile bool g_running;
+// Global flag for signal handling. Uses sig_atomic_t (not bool) so that
+// writes from the async signal handler are well-defined per the C/C++
+// standard; the handler must stay async-signal-safe (no I/O, no allocations).
+extern volatile sig_atomic_t g_running;
 
 // Signal handler declaration
 void signal_handler(int signal);

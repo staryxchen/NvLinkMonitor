@@ -7,14 +7,17 @@
 #include "arg_parser.h"
 #include "bandwidth_calc.h"
 
-// Global flag for signal handling
-volatile bool g_running = true;
+// Global flag for signal handling. sig_atomic_t guarantees that writes from
+// the signal handler are well-defined. The handler only flips this flag — it
+// must NOT do any I/O (std::cout/cerr are not async-signal-safe and can
+// deadlock if the signal interrupts the main thread mid-output).
+volatile sig_atomic_t g_running = 1;
 
-// Signal handler implementation
+// Signal handler implementation — async-signal-safe: only flips g_running.
+// The "exiting" notice is printed by the main loop after it observes the flag.
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
-        std::cout << "\nReceived stop signal, exiting..." << std::endl;
-        g_running = false;
+        g_running = 0;
     }
 }
 
@@ -157,16 +160,30 @@ std::vector<GPUMonitorResult> NvLinkMonitor::getNvLinkData() {
                         linkData.rxBytes = fieldValues[1].value.ullVal;
                     }
                 } else {
-                    // Fallback to traditional API
+                    // Fallback to the traditional utilization-counter API.
+                    // CAVEAT: unlike NVML_FI_DEV_NVLINK_THROUGHPUT_DATA_TX/RX
+                    // (which are documented as KiB throughput), the raw
+                    // counters from nvmlDeviceGetNvLinkUtilizationCounter have
+                    // units that depend on the counter configuration set via
+                    // nvmlDeviceSetNvLinkUtilizationCounter, and are not
+                    // guaranteed to be KiB. We feed them through the same
+                    // KiB->GiB conversion in bandwidth_calc as a best-effort
+                    // estimate, so bandwidth numbers from this path may be
+                    // inaccurate. Warn once per link in verbose mode.
                     unsigned long long rxCounter, txCounter;
                     if (nvmlDeviceGetNvLinkUtilizationCounter(
                             gpu.device, link, 0, &rxCounter, &txCounter) ==
                         NVML_SUCCESS) {
                         linkData.rxBytes = rxCounter;
                         linkData.txBytes = txCounter;
-                        std::cout << "  Link " << link
-                                  << " (Traditional): TX=" << linkData.txBytes
-                                  << " RX=" << linkData.rxBytes << std::endl;
+                        if (verboseOutput) {
+                            std::cerr
+                                << "Warning: GPU " << gpu.id << " Link " << link
+                                << " using traditional utilization counter "
+                                << "(units may differ from KiB throughput; "
+                                << "bandwidth estimate may be inaccurate)"
+                                << std::endl;
+                        }
                     } else {
                         std::cerr
                             << "Failed to get utilization counters for GPU "
@@ -275,8 +292,16 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
 
         if (!g_running) break;
 
-        auto currentTime = std::chrono::high_resolution_clock::now();
+        // Record the timestamp AFTER reading the counters so that both
+        // lastTime and currentTime mark the moment a counter read completed.
+        // actualInterval then exactly equals the observation window between
+        // two reads (which includes the previous iteration's calculate/print
+        // time — NVML counters keep accumulating during that work, so it
+        // belongs in the denominator). Recording the timestamp before the
+        // read would make iteration 1 exclude the read duration while
+        // iteration 2+ include it, producing inconsistent deltas.
         auto currentSnapshot = getNvLinkData();
+        auto currentTime = std::chrono::high_resolution_clock::now();
 
         // Calculate actual time difference with nanosecond precision
         auto timeDiff = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -405,6 +430,13 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
+    }
+
+    // Printed from the main thread (not the signal handler) because std::cout
+    // is not async-signal-safe. The handler only flips g_running; this covers
+    // both continuous and single monitoring modes uniformly.
+    if (!g_running) {
+        std::cout << "\nReceived stop signal, exiting..." << std::endl;
     }
 
     return 0;

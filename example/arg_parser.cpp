@@ -37,6 +37,8 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
         {"src-gpu", required_argument, 0, 's'},
         {"dst-gpu", required_argument, 0, 'd'},
         {"mode", required_argument, 0, 'm'},
+        {"direction", required_argument, 0, 1001},
+        {"all-pairs", no_argument, 0, 1002},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}};
 
@@ -125,6 +127,23 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
                 }
                 break;
             }
+            case 1001: {  // --direction
+                std::string d = optarg;
+                if (d == "unidir") {
+                    config.direction = Direction::Unidir;
+                } else if (d == "bidir") {
+                    config.direction = Direction::Bidir;
+                } else {
+                    config.ok = false;
+                    config.errorMessage = "invalid direction: " + d +
+                                          " (expected 'unidir' or 'bidir')";
+                    return config;
+                }
+                break;
+            }
+            case 1002:  // --all-pairs
+                config.allPairs = true;
+                break;
             case 'h':
                 config.help = true;
                 break;

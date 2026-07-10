@@ -187,17 +187,37 @@ A performance testing tool for measuring NVLink bandwidth between GPUs.
 ./build/nvlink_bw_test --mode kernel -i 100 -b 1000 -s 0 -d 1
 ```
 
+#### 🔁 Bidirectional (full-duplex aggregate bandwidth):
+```bash
+# Issue src->dst and dst->src concurrently on per-GPU streams; reports
+# aggregate bandwidth = 2 * size / elapsed (both directions share the
+# wall-clock window). Latency stays per-direction.
+./build/nvlink_bw_test --direction bidir -i 100 -b 1000 -s 0 -d 1
+```
+
+#### 🕸️ All-pairs topology sweep:
+```bash
+# Test every i<j GPU pair (ignores -s/-d), skipping pairs without P2P.
+# Prints per-pair results and a compact summary at the end. Combines with
+# --direction bidir for a full-duplex topology sweep.
+./build/nvlink_bw_test --all-pairs -i 20 -b 500
+./build/nvlink_bw_test --all-pairs --direction bidir -i 20 -b 500
+```
+
 #### 📋 Available options:
 - `-i, --iterations NUM`: Number of iterations (default: 100)
 - `-b, --buffer-size NUM`: Buffer size in MB (default: 1000)
 - `-s, --src-gpu NUM`: Source GPU ID (default: 0)
 - `-d, --dst-gpu NUM`: Destination GPU ID (default: 1)
 - `-m, --mode memcpy|kernel`: Copy method (default: memcpy). `memcpy` uses `cudaMemcpyDeviceToDevice` (copy engine DMA); `kernel` launches a vectorized `__global__` copy kernel whose load/stores traverse NVLink via P2P peer access.
+- `--direction unidir|bidir`: unidirectional (default) or bidirectional. `bidir` issues both directions concurrently and reports aggregate full-duplex bandwidth (2× size / elapsed).
+- `--all-pairs`: Sweep all i<j GPU pairs (ignores `-s/-d`); skips pairs without P2P and prints a summary. Composes with `--direction`.
 - `-h, --help`: Show help message
 
 #### Example:
 ```bash
 ./build/nvlink_bw_test -i 200 -b 2000 -s 0 -d 1 -m kernel
+./build/nvlink_bw_test --all-pairs --direction bidir -i 20 -b 500
 ```
 
 ## ✨ Features
@@ -215,6 +235,8 @@ A performance testing tool for measuring NVLink bandwidth between GPUs.
 - Configurable buffer sizes and iteration counts
 - Source and destination GPU selection
 - One untimed warmup copy before the timed loop (primes the CUDA context / copy engine / kernel launch path so the first timed iteration is not skewed by one-time setup)
+- Bidirectional mode (`--direction bidir`): concurrent both-direction copies on per-GPU streams, reporting aggregate full-duplex bandwidth
+- All-pairs topology sweep (`--all-pairs`): tests every i<j GPU pair, skips unsupported pairs, prints a summary
 - Performance statistics calculation
 
 ## 🔧 Technical Details

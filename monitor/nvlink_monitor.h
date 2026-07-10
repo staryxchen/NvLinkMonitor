@@ -31,16 +31,16 @@ struct NvLinkData {
     unsigned int linkId;
     unsigned long long txBytes;
     unsigned long long rxBytes;
-    double txGBps;
-    double rxGBps;
+    double txGiBps;
+    double rxGiBps;
 };
 
 // Structure to hold GPU monitoring result
 struct GPUMonitorResult {
     std::string gpuId;
     unsigned int nvLinkCount;  // Number of active NvLinks
-    double totalTxGBps;
-    double totalRxGBps;
+    double totalTxGiBps;
+    double totalRxGiBps;
     std::vector<NvLinkData> links;
 };
 

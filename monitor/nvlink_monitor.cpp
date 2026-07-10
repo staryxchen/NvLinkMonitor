@@ -117,8 +117,8 @@ std::vector<GPUMonitorResult> NvLinkMonitor::getNvLinkData() {
         GPUMonitorResult result;
         result.gpuId = gpu.id;
         result.nvLinkCount = gpu.nvLinkCount;
-        result.totalTxGBps = 0.0;
-        result.totalRxGBps = 0.0;
+        result.totalTxGiBps = 0.0;
+        result.totalRxGiBps = 0.0;
 
         // Get utilization counters for each NvLink using Field Values
         for (unsigned int link = 0; link < gpu.nvLinkCount; link++) {
@@ -130,8 +130,8 @@ std::vector<GPUMonitorResult> NvLinkMonitor::getNvLinkData() {
                 linkData.linkId = link;
                 linkData.rxBytes = 0;
                 linkData.txBytes = 0;
-                linkData.rxGBps = 0.0;
-                linkData.txGBps = 0.0;
+                linkData.rxGiBps = 0.0;
+                linkData.txGiBps = 0.0;
 
                 // Try Field Values API first
                 nvmlFieldValue_t fieldValues[2];
@@ -211,8 +211,8 @@ void NvLinkMonitor::formatGPUResult(
         getOutputStream() << "GPU " << gpu.gpuId << " (" << gpu.nvLinkCount
                           << " links) "
                           << "RX: " << std::fixed << std::setprecision(1)
-                          << std::setw(4) << gpu.totalRxGBps
-                          << " GiB/s, TX: " << std::setw(4) << gpu.totalTxGBps
+                          << std::setw(4) << gpu.totalRxGiBps
+                          << " GiB/s, TX: " << std::setw(4) << gpu.totalTxGiBps
                           << " GiB/s" << std::endl;
     }
 }
@@ -233,8 +233,8 @@ void NvLinkMonitor::formatDetailedGPUResult(
         getOutputStream() << "GPU " << gpu.gpuId << " (" << gpu.nvLinkCount
                           << " links) "
                           << "Total RX: " << std::fixed << std::setprecision(1)
-                          << std::setw(4) << gpu.totalRxGBps
-                          << " GiB/s, TX: " << std::setw(4) << gpu.totalTxGBps
+                          << std::setw(4) << gpu.totalRxGiBps
+                          << " GiB/s, TX: " << std::setw(4) << gpu.totalTxGiBps
                           << " GiB/s" << std::endl;
 
         // Print individual link details
@@ -242,8 +242,8 @@ void NvLinkMonitor::formatDetailedGPUResult(
             getOutputStream()
                 << "  Link " << std::setw(2) << link.linkId
                 << " RX: " << std::fixed << std::setprecision(1) << std::setw(6)
-                << link.rxGBps << " GiB/s, TX: " << std::setw(6) << link.txGBps
-                << " GiB/s" << std::endl;
+                << link.rxGiBps << " GiB/s, TX: " << std::setw(6)
+                << link.txGiBps << " GiB/s" << std::endl;
         }
         getOutputStream() << std::endl;  // Add blank line between GPUs
     }

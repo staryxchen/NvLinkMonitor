@@ -5,14 +5,11 @@
 #include <vector>
 
 // Aggregated bandwidth statistics for a series of copy timings.
-//
-// Note: field names use "Gbps" for consistency with the existing
-// output text, but values are GiB/s (buffer_size_mb is MiB, divided
-// by 1024 to get GiB).
+// Values are GiB/s (bufferSizeMb is MiB, divided by 1024 to get GiB).
 struct BandwidthStats {
-    double avgGbps;
-    double minGbps;
-    double maxGbps;
+    double avgGiBps;
+    double minGiBps;
+    double maxGiBps;
     double avgLatencyMs;
     bool valid;
 };

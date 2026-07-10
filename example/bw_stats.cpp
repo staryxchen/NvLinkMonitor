@@ -18,9 +18,9 @@ BandwidthStats computeBandwidthStats(const std::vector<double>& copyTimesMs,
     double maxTime = *std::max_element(copyTimesMs.begin(), copyTimesMs.end());
 
     // bufferSizeMb is MiB; /1024.0 gives GiB. Time is ms; /1000.0 gives s.
-    stats.avgGbps = (bufferSizeMb / 1024.0) / (avgTime / 1000.0);
-    stats.minGbps = (bufferSizeMb / 1024.0) / (maxTime / 1000.0);
-    stats.maxGbps = (bufferSizeMb / 1024.0) / (minTime / 1000.0);
+    stats.avgGiBps = (bufferSizeMb / 1024.0) / (avgTime / 1000.0);
+    stats.minGiBps = (bufferSizeMb / 1024.0) / (maxTime / 1000.0);
+    stats.maxGiBps = (bufferSizeMb / 1024.0) / (minTime / 1000.0);
     stats.avgLatencyMs = avgTime;
     stats.valid = true;
 

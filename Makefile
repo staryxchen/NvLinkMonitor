@@ -12,12 +12,13 @@ TEST_TARGET = $(BUILD_DIR)/run_tests
 
 MONITOR_SOURCES = monitor/nvlink_monitor.cpp monitor/bandwidth_calc.cpp monitor/arg_parser.cpp
 MONITOR_HEADERS = monitor/nvlink_monitor.h monitor/bandwidth_calc.h monitor/arg_parser.h
-EXAMPLE_SOURCES = example/nvlink_bw_test.cpp example/bw_stats.cpp
-EXAMPLE_HEADERS = example/bw_stats.h
+EXAMPLE_SOURCES = example/nvlink_bw_test.cpp example/bw_stats.cpp example/arg_parser.cpp
+EXAMPLE_HEADERS = example/bw_stats.h example/arg_parser.h
 
 TEST_SOURCES = test/test_bandwidth_calc.cpp test/test_arg_parser.cpp test/test_bw_stats.cpp \
-               monitor/bandwidth_calc.cpp monitor/arg_parser.cpp example/bw_stats.cpp
-TEST_HEADERS = monitor/bandwidth_calc.h monitor/arg_parser.h example/bw_stats.h monitor/nvlink_monitor.h
+               test/test_bw_test_args.cpp \
+               monitor/bandwidth_calc.cpp monitor/arg_parser.cpp example/bw_stats.cpp example/arg_parser.cpp
+TEST_HEADERS = monitor/bandwidth_calc.h monitor/arg_parser.h example/bw_stats.h example/arg_parser.h monitor/nvlink_monitor.h
 
 # Sources checked by clang-format (all C++ sources and headers)
 FORMAT_SOURCES = $(MONITOR_SOURCES) $(MONITOR_HEADERS) \

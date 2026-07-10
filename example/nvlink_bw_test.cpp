@@ -1,6 +1,4 @@
 #include <cuda_runtime.h>
-#include <getopt.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstring>
@@ -9,6 +7,7 @@
 #include <numeric>
 #include <vector>
 
+#include "arg_parser.h"
 #include "bw_stats.h"
 
 static bool checkCudaErrorReturn(cudaError_t result, const char* message) {
@@ -265,11 +264,11 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
             copy_times.push_back(copy_time);
 
             if (i % 100 == 0 || i == iterations - 1) {
-                double bandwidth_gbps =
+                double bandwidth_gibps =
                     (buffer_size_mb / 1024.0) / (copy_time / 1000.0);
                 std::cout << "   Iteration " << (i + 1) << "/" << iterations
                           << " → " << std::fixed << std::setprecision(2)
-                          << bandwidth_gbps << " GB/s" << std::endl;
+                          << bandwidth_gibps << " GiB/s" << std::endl;
             }
         }
     }
@@ -279,13 +278,13 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
         std::cout << std::endl;
         std::cout << "Performance Results:" << std::endl;
         std::cout << "   ├─ Average bandwidth: " << std::fixed
-                  << std::setprecision(2) << stats.avgGbps << " GB/s"
+                  << std::setprecision(2) << stats.avgGiBps << " GiB/s"
                   << std::endl;
         std::cout << "   ├─ Min bandwidth: " << std::fixed
-                  << std::setprecision(2) << stats.minGbps << " GB/s"
+                  << std::setprecision(2) << stats.minGiBps << " GiB/s"
                   << std::endl;
         std::cout << "   ├─ Max bandwidth: " << std::fixed
-                  << std::setprecision(2) << stats.maxGbps << " GB/s"
+                  << std::setprecision(2) << stats.maxGiBps << " GiB/s"
                   << std::endl;
         std::cout << "   └─ Average latency: " << std::fixed
                   << std::setprecision(3) << stats.avgLatencyMs << " ms"
@@ -296,15 +295,6 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
     checkCudaErrorReturn(cudaFree(dst_ptr),
                          "Failed to free destination memory");
 }
-
-// Default parameter values
-struct TestConfig {
-    int iterations = 100;
-    size_t buffer_size_mb = 1000;
-    int src_gpu_id = 0;
-    int dst_gpu_id = 1;
-    bool help = false;
-};
 
 // Print usage information
 void printUsage(const char* program_name) {
@@ -322,78 +312,18 @@ void printUsage(const char* program_name) {
         << std::endl;
 }
 
-// Parse command line arguments
-TestConfig parseCommandLine(int argc, char* argv[]) {
-    TestConfig config;
-
-    static struct option long_options[] = {
-        {"iterations", required_argument, 0, 'i'},
-        {"buffer-size", required_argument, 0, 'b'},
-        {"src-gpu", required_argument, 0, 's'},
-        {"dst-gpu", required_argument, 0, 'd'},
-        {"help", no_argument, 0, 'h'},
-        {0, 0, 0, 0}};
-
-    int opt;
-    int option_index = 0;
-
-    while ((opt = getopt_long(argc, argv, "i:b:s:d:h", long_options,
-                              &option_index)) != -1) {
-        switch (opt) {
-            case 'i':
-                config.iterations = std::atoi(optarg);
-                if (config.iterations <= 0) {
-                    std::cerr << "Error: iterations must be positive"
-                              << std::endl;
-                    exit(1);
-                }
-                break;
-            case 'b':
-                config.buffer_size_mb = std::atoi(optarg);
-                if (config.buffer_size_mb <= 0) {
-                    std::cerr << "Error: buffer size must be positive"
-                              << std::endl;
-                    exit(1);
-                }
-                break;
-            case 's':
-                config.src_gpu_id = std::atoi(optarg);
-                if (config.src_gpu_id < 0) {
-                    std::cerr << "Error: source GPU ID must be non-negative"
-                              << std::endl;
-                    exit(1);
-                }
-                break;
-            case 'd':
-                config.dst_gpu_id = std::atoi(optarg);
-                if (config.dst_gpu_id < 0) {
-                    std::cerr
-                        << "Error: destination GPU ID must be non-negative"
-                        << std::endl;
-                    exit(1);
-                }
-                break;
-            case 'h':
-                config.help = true;
-                break;
-            case '?':
-                // getopt already printed an error message
-                exit(1);
-            default:
-                abort();
-        }
-    }
-
-    return config;
-}
-
 int main(int argc, char* argv[]) {
-    // Parse command line arguments
-    TestConfig config = parseCommandLine(argc, argv);
+    // Parse command-line arguments
+    TestConfig config = parseBwTestArgs(argc, argv);
 
     if (config.help) {
         printUsage(argv[0]);
         return 0;
+    }
+    if (!config.ok) {
+        std::cerr << "Error: " << config.errorMessage << std::endl;
+        printUsage(argv[0]);
+        return 1;
     }
 
     std::cout

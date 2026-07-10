@@ -15,6 +15,7 @@ NvLinkMonitor/
 │   └── arg_parser.{cpp,h}          # CLI argument parsing (extracted)
 ├── example/                        # NVLink bandwidth testing tool
 │   ├── nvlink_bw_test.cpp          # Bandwidth test main()
+│   ├── copy_kernel.{cu,h}          # __global__ copy kernel (compiled by nvcc)
 │   ├── bw_stats.{cpp,h}            # Bandwidth stats aggregation (extracted)
 │   └── arg_parser.{cpp,h}          # CLI argument parsing (extracted)
 ├── test/                           # GoogleTest unit tests (no GPU needed)
@@ -73,6 +74,8 @@ make example
 The executables will be created in the `build/` directory:
 - `build/nvlink_monitor` - NVLink monitoring tool
 - `build/nvlink_bw_test` - NVLink bandwidth test tool
+
+> **Note:** Building `nvlink_bw_test` requires `nvcc` (from the CUDA toolkit) in addition to `g++`, since `example/copy_kernel.cu` contains a `__global__` kernel. The monitor builds with `g++` only. Unit tests (`make test`) do not require `nvcc` or a GPU.
 
 ### 🧪 Testing
 
@@ -156,16 +159,25 @@ A performance testing tool for measuring NVLink bandwidth between GPUs.
 ./build/nvlink_bw_test -i 200 -b 2000 -s 0 -d 1
 ```
 
+#### 🧬 Kernel-based copy (instead of cudaMemcpy):
+```bash
+# Use a __global__ copy kernel issuing vectorized load/stores over P2P.
+# Produces NVLink traffic just like the default memcpy path, but exercises
+# the SMs rather than the copy engine.
+./build/nvlink_bw_test --mode kernel -i 100 -b 1000 -s 0 -d 1
+```
+
 #### 📋 Available options:
 - `-i, --iterations NUM`: Number of iterations (default: 100)
 - `-b, --buffer-size NUM`: Buffer size in MB (default: 1000)
 - `-s, --src-gpu NUM`: Source GPU ID (default: 0)
 - `-d, --dst-gpu NUM`: Destination GPU ID (default: 1)
+- `-m, --mode memcpy|kernel`: Copy method (default: memcpy). `memcpy` uses `cudaMemcpyDeviceToDevice` (copy engine DMA); `kernel` launches a vectorized `__global__` copy kernel whose load/stores traverse NVLink via P2P peer access.
 - `-h, --help`: Show help message
 
 #### Example:
 ```bash
-./build/nvlink_bw_test -i 200 -b 2000 -s 0 -d 1
+./build/nvlink_bw_test -i 200 -b 2000 -s 0 -d 1 -m kernel
 ```
 
 ## ✨ Features
@@ -179,6 +191,7 @@ A performance testing tool for measuring NVLink bandwidth between GPUs.
 
 ### ⚡ NVLink Bandwidth Test Features:
 - Inter-GPU memory copy performance testing
+- Two copy methods: `cudaMemcpyDeviceToDevice` (copy engine) and `__global__` kernel (SM load/stores over P2P)
 - Configurable buffer sizes and iteration counts
 - Source and destination GPU selection
 - Performance statistics calculation

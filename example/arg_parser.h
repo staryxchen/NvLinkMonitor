@@ -4,12 +4,18 @@
 #include <cstddef>
 #include <string>
 
+// How data is moved between GPUs during the bandwidth test.
+//   Memcpy - cudaMemcpyDeviceToDevice (driver-managed DMA via copy engine)
+//   Kernel - a __global__ copy kernel issuing vectorized load/stores over P2P
+enum class CopyMode { Memcpy, Kernel };
+
 // Parsed command-line arguments for nvlink_bw_test.
 struct TestConfig {
     int iterations = 100;
     size_t buffer_size_mb = 1000;
     int src_gpu_id = 0;
     int dst_gpu_id = 1;
+    CopyMode mode = CopyMode::Memcpy;
     bool help = false;
     bool ok = true;
     std::string errorMessage;

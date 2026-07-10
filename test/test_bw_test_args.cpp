@@ -37,6 +37,7 @@ TEST(BwTestArgs, Defaults) {
     EXPECT_EQ(c.buffer_size_mb, 1000u);
     EXPECT_EQ(c.src_gpu_id, 0);
     EXPECT_EQ(c.dst_gpu_id, 1);
+    EXPECT_EQ(c.mode, CopyMode::Memcpy);
     EXPECT_FALSE(c.help);
 }
 
@@ -140,14 +141,59 @@ TEST(BwTestArgs, DstGpuNegativeRejected) {
     EXPECT_FALSE(c.errorMessage.empty());
 }
 
+TEST(BwTestArgs, ModeDefaultIsMemcpy) {
+    Argv a{"nvlink_bw_test"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.mode, CopyMode::Memcpy);
+}
+
+TEST(BwTestArgs, ModeMemcpyExplicit) {
+    Argv a{"nvlink_bw_test", "-m", "memcpy"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.mode, CopyMode::Memcpy);
+}
+
+TEST(BwTestArgs, ModeKernelShort) {
+    Argv a{"nvlink_bw_test", "-m", "kernel"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.mode, CopyMode::Kernel);
+}
+
+TEST(BwTestArgs, ModeKernelLong) {
+    Argv a{"nvlink_bw_test", "--mode", "kernel"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.mode, CopyMode::Kernel);
+}
+
+TEST(BwTestArgs, ModeInvalidRejected) {
+    Argv a{"nvlink_bw_test", "-m", "foo"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_FALSE(c.ok);
+    EXPECT_FALSE(c.errorMessage.empty());
+}
+
+TEST(BwTestArgs, ModeMissingArgRejected) {
+    Argv a{"nvlink_bw_test", "-m"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_FALSE(c.ok);
+    EXPECT_FALSE(c.errorMessage.empty());
+}
+
 TEST(BwTestArgs, CombinedOptions) {
-    Argv a{"nvlink_bw_test", "-i", "200", "-b", "2000", "-s", "0", "-d", "1"};
+    Argv a{
+        "nvlink_bw_test", "-i", "200", "-b", "2000", "-s", "0", "-d", "1", "-m",
+        "kernel"};
     auto c = parseBwTestArgs(a.argc(), a.argv());
     EXPECT_TRUE(c.ok);
     EXPECT_EQ(c.iterations, 200);
     EXPECT_EQ(c.buffer_size_mb, 2000u);
     EXPECT_EQ(c.src_gpu_id, 0);
     EXPECT_EQ(c.dst_gpu_id, 1);
+    EXPECT_EQ(c.mode, CopyMode::Kernel);
 }
 
 TEST(BwTestArgs, UnknownOptionRejected) {
@@ -166,11 +212,14 @@ TEST(BwTestArgs, LongOptions) {
            "--src-gpu",
            "0",
            "--dst-gpu",
-           "2"};
+           "2",
+           "--mode",
+           "kernel"};
     auto c = parseBwTestArgs(a.argc(), a.argv());
     EXPECT_TRUE(c.ok);
     EXPECT_EQ(c.iterations, 50);
     EXPECT_EQ(c.buffer_size_mb, 500u);
     EXPECT_EQ(c.src_gpu_id, 0);
     EXPECT_EQ(c.dst_gpu_id, 2);
+    EXPECT_EQ(c.mode, CopyMode::Kernel);
 }

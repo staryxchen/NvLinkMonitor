@@ -9,6 +9,7 @@
 
 #include "arg_parser.h"
 #include "bw_stats.h"
+#include "copy_kernel.h"
 
 static bool checkCudaErrorReturn(cudaError_t result, const char* message) {
     if (result != cudaSuccess) {
@@ -199,8 +200,82 @@ double measureCopyTime(void* dst_ptr, void* src_ptr, size_t size_bytes,
     return time_ms;
 }
 
+// Times a kernel-based copy (launchCopyKernel) with cudaEvent start/stop,
+// mirroring measureCopyTime. The kernel is launched on src_gpu and writes to
+// dst_ptr over P2P/NVLink. Returns elapsed ms, or -1.0 on error.
+double measureCopyTimeKernel(void* dst_ptr, void* src_ptr, size_t size_bytes,
+                             int src_gpu) {
+    if (!checkCudaErrorReturn(cudaSetDevice(src_gpu),
+                              "Failed to set device for kernel copy")) {
+        return -1.0;
+    }
+
+    cudaEvent_t start, stop;
+    if (!checkCudaErrorReturn(cudaEventCreate(&start),
+                              "Failed to create start event")) {
+        return -1.0;
+    }
+
+    if (!checkCudaErrorReturn(cudaEventCreate(&stop),
+                              "Failed to create stop event")) {
+        cudaEventDestroy(start);
+        return -1.0;
+    }
+
+    if (!checkCudaErrorReturn(cudaDeviceSynchronize(),
+                              "Failed to synchronize device")) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return -1.0;
+    }
+
+    if (!checkCudaErrorReturn(cudaEventRecord(start),
+                              "Failed to record start event")) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return -1.0;
+    }
+
+    cudaError_t err = launchCopyKernel(dst_ptr, src_ptr, size_bytes, src_gpu);
+    if (err != cudaSuccess) {
+        std::cerr << "Kernel launch failed (Error code: " << err << " - "
+                  << cudaGetErrorString(err) << ")" << std::endl;
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return -1.0;
+    }
+
+    if (!checkCudaErrorReturn(cudaEventRecord(stop),
+                              "Failed to record stop event")) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return -1.0;
+    }
+
+    // Execution errors (e.g. illegal memory access) surface here.
+    if (!checkCudaErrorReturn(cudaEventSynchronize(stop),
+                              "Kernel copy failed")) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return -1.0;
+    }
+
+    float time_ms;
+    if (!checkCudaErrorReturn(cudaEventElapsedTime(&time_ms, start, stop),
+                              "Failed to get elapsed time")) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return -1.0;
+    }
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
+    return time_ms;
+}
+
 void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
-                         int iterations) {
+                         int iterations, CopyMode mode) {
     std::cout << "Buffer size: " << buffer_size_mb
               << " MB | Iterations: " << iterations << std::endl;
 
@@ -256,9 +331,15 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
     std::vector<double> copy_times;
 
     for (int i = 0; i < iterations; i++) {
-        double copy_time =
-            measureCopyTime(dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024,
-                            src_gpu, cudaMemcpyDeviceToDevice);
+        double copy_time;
+        if (mode == CopyMode::Kernel) {
+            copy_time = measureCopyTimeKernel(
+                dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024, src_gpu);
+        } else {
+            copy_time =
+                measureCopyTime(dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024,
+                                src_gpu, cudaMemcpyDeviceToDevice);
+        }
 
         if (copy_time > 0) {
             copy_times.push_back(copy_time);
@@ -305,6 +386,8 @@ void printUsage(const char* program_name) {
         << "  -b, --buffer-size NUM   Buffer size in MB (default: 1000)\n"
         << "  -s, --src-gpu NUM       Source GPU ID (default: 0)\n"
         << "  -d, --dst-gpu NUM       Destination GPU ID (default: 1)\n"
+        << "  -m, --mode memcpy|kernel\n"
+        << "                          Copy method (default: memcpy)\n"
         << "  -h, --help              Show this help message\n"
         << "\n"
         << "Example:\n"
@@ -342,6 +425,9 @@ int main(int argc, char* argv[]) {
               << std::endl;
     std::cout << "   • Source GPU: " << config.src_gpu_id << std::endl;
     std::cout << "   • Destination GPU: " << config.dst_gpu_id << std::endl;
+    std::cout << "   • Copy mode: "
+              << (config.mode == CopyMode::Kernel ? "kernel" : "memcpy")
+              << std::endl;
     std::cout << std::endl;
 
     int deviceCount;
@@ -386,8 +472,9 @@ int main(int argc, char* argv[]) {
     // Run test with configured buffer size
     size_t buffer_size = config.buffer_size_mb;
 
-    // Test cudaMemcpyDeviceToDevice
-    testCopyPerformance(src_gpu, dst_gpu, buffer_size, config.iterations);
+    // Test copy performance (cudaMemcpyDeviceToDevice or kernel-based)
+    testCopyPerformance(src_gpu, dst_gpu, buffer_size, config.iterations,
+                        config.mode);
 
     // Test completed successfully
     std::cout << std::endl;

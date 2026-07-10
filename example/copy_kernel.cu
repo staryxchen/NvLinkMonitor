@@ -11,7 +11,7 @@ __global__ void copyKernel(uint4* dst, const uint4* src, size_t count) {
 }
 
 cudaError_t launchCopyKernel(void* dst, const void* src, size_t size_bytes,
-                             int device) {
+                             int device, cudaStream_t stream) {
     cudaError_t err = cudaSetDevice(device);
     if (err != cudaSuccess) {
         return err;
@@ -22,7 +22,8 @@ cudaError_t launchCopyKernel(void* dst, const void* src, size_t size_bytes,
     const int block = 256;
     int grid = static_cast<int>((count + block - 1) / block);
 
-    copyKernel<<<grid, block>>>(reinterpret_cast<uint4*>(dst),
-                                reinterpret_cast<const uint4*>(src), count);
+    copyKernel<<<grid, block, 0, stream>>>(reinterpret_cast<uint4*>(dst),
+                                           reinterpret_cast<const uint4*>(src),
+                                           count);
     return cudaGetLastError();
 }

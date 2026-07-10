@@ -15,7 +15,10 @@
 // Returns cudaSuccess on successful launch. Launch-configuration errors are
 // captured via cudaGetLastError before returning; execution errors (e.g.
 // illegal memory access) surface at the caller's next synchronization point.
+//
+// `stream` selects the launch stream (0 = default stream). Used by the
+// bidirectional test to run two kernels concurrently on separate GPUs/streams.
 cudaError_t launchCopyKernel(void* dst, const void* src, size_t size_bytes,
-                             int device);
+                             int device, cudaStream_t stream = 0);
 
 #endif  // NVLINK_BW_TEST_COPY_KERNEL_H

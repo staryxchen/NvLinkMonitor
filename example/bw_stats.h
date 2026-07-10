@@ -18,7 +18,12 @@ struct BandwidthStats {
 // vector of per-iteration copy times (in ms). Returns valid=false on
 // empty input. min/max bandwidth are derived from max/min time
 // respectively (slowest copy = lowest bandwidth).
+//
+// When `bidirectional` is true, bandwidth values are doubled (two buffers
+// worth of data move concurrently, one in each direction); avgLatencyMs
+// stays per-direction. Used by the --direction bidir test path.
 BandwidthStats computeBandwidthStats(const std::vector<double>& copyTimesMs,
-                                     size_t bufferSizeMb);
+                                     size_t bufferSizeMb,
+                                     bool bidirectional = false);
 
 #endif  // NVLINK_BW_TEST_STATS_H

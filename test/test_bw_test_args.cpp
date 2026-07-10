@@ -38,6 +38,8 @@ TEST(BwTestArgs, Defaults) {
     EXPECT_EQ(c.src_gpu_id, 0);
     EXPECT_EQ(c.dst_gpu_id, 1);
     EXPECT_EQ(c.mode, CopyMode::Memcpy);
+    EXPECT_EQ(c.direction, Direction::Unidir);
+    EXPECT_FALSE(c.allPairs);
     EXPECT_FALSE(c.help);
 }
 
@@ -183,10 +185,70 @@ TEST(BwTestArgs, ModeMissingArgRejected) {
     EXPECT_FALSE(c.errorMessage.empty());
 }
 
+TEST(BwTestArgs, DirectionDefaultIsUnidir) {
+    Argv a{"nvlink_bw_test"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.direction, Direction::Unidir);
+}
+
+TEST(BwTestArgs, DirectionUnidirExplicit) {
+    Argv a{"nvlink_bw_test", "--direction", "unidir"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.direction, Direction::Unidir);
+}
+
+TEST(BwTestArgs, DirectionBidir) {
+    Argv a{"nvlink_bw_test", "--direction", "bidir"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_EQ(c.direction, Direction::Bidir);
+}
+
+TEST(BwTestArgs, DirectionInvalidRejected) {
+    Argv a{"nvlink_bw_test", "--direction", "both"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_FALSE(c.ok);
+    EXPECT_FALSE(c.errorMessage.empty());
+}
+
+TEST(BwTestArgs, DirectionMissingArgRejected) {
+    Argv a{"nvlink_bw_test", "--direction"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_FALSE(c.ok);
+    EXPECT_FALSE(c.errorMessage.empty());
+}
+
+TEST(BwTestArgs, AllPairsFlag) {
+    Argv a{"nvlink_bw_test", "--all-pairs"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_TRUE(c.allPairs);
+}
+
+TEST(BwTestArgs, AllPairsDefaultFalse) {
+    Argv a{"nvlink_bw_test"};
+    auto c = parseBwTestArgs(a.argc(), a.argv());
+    EXPECT_TRUE(c.ok);
+    EXPECT_FALSE(c.allPairs);
+}
+
 TEST(BwTestArgs, CombinedOptions) {
-    Argv a{
-        "nvlink_bw_test", "-i", "200", "-b", "2000", "-s", "0", "-d", "1", "-m",
-        "kernel"};
+    Argv a{"nvlink_bw_test",
+           "-i",
+           "200",
+           "-b",
+           "2000",
+           "-s",
+           "0",
+           "-d",
+           "1",
+           "-m",
+           "kernel",
+           "--direction",
+           "bidir",
+           "--all-pairs"};
     auto c = parseBwTestArgs(a.argc(), a.argv());
     EXPECT_TRUE(c.ok);
     EXPECT_EQ(c.iterations, 200);
@@ -194,6 +256,8 @@ TEST(BwTestArgs, CombinedOptions) {
     EXPECT_EQ(c.src_gpu_id, 0);
     EXPECT_EQ(c.dst_gpu_id, 1);
     EXPECT_EQ(c.mode, CopyMode::Kernel);
+    EXPECT_EQ(c.direction, Direction::Bidir);
+    EXPECT_TRUE(c.allPairs);
 }
 
 TEST(BwTestArgs, UnknownOptionRejected) {
@@ -214,7 +278,9 @@ TEST(BwTestArgs, LongOptions) {
            "--dst-gpu",
            "2",
            "--mode",
-           "kernel"};
+           "kernel",
+           "--direction",
+           "bidir"};
     auto c = parseBwTestArgs(a.argc(), a.argv());
     EXPECT_TRUE(c.ok);
     EXPECT_EQ(c.iterations, 50);
@@ -222,4 +288,5 @@ TEST(BwTestArgs, LongOptions) {
     EXPECT_EQ(c.src_gpu_id, 0);
     EXPECT_EQ(c.dst_gpu_id, 2);
     EXPECT_EQ(c.mode, CopyMode::Kernel);
+    EXPECT_EQ(c.direction, Direction::Bidir);
 }

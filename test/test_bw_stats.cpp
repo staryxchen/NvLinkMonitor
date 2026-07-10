@@ -52,3 +52,22 @@ TEST(BandwidthStats, MinMaxInversion) {
     EXPECT_NEAR(s.minGiBps, 50.0, 1e-9);
     EXPECT_NEAR(s.maxGiBps, 200.0, 1e-9);
 }
+
+TEST(BandwidthStats, BidirectionalDoublesBandwidth) {
+    // Same timings as KnownValues; bidirectional should double the bandwidth
+    // while leaving per-direction latency unchanged.
+    auto unidir = computeBandwidthStats({10.0, 20.0, 40.0}, 1024, false);
+    auto bidir = computeBandwidthStats({10.0, 20.0, 40.0}, 1024, true);
+    EXPECT_TRUE(unidir.valid);
+    EXPECT_TRUE(bidir.valid);
+    EXPECT_NEAR(bidir.avgGiBps, unidir.avgGiBps * 2.0, 1e-6);
+    EXPECT_NEAR(bidir.minGiBps, unidir.minGiBps * 2.0, 1e-6);
+    EXPECT_NEAR(bidir.maxGiBps, unidir.maxGiBps * 2.0, 1e-6);
+    // Latency is per-direction and must NOT be doubled.
+    EXPECT_NEAR(bidir.avgLatencyMs, unidir.avgLatencyMs, 1e-9);
+}
+
+TEST(BandwidthStats, BidirectionalEmpty) {
+    auto s = computeBandwidthStats({}, 1024, true);
+    EXPECT_FALSE(s.valid);
+}

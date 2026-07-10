@@ -274,35 +274,160 @@ double measureCopyTimeKernel(void* dst_ptr, void* src_ptr, size_t size_bytes,
     return time_ms;
 }
 
-void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
-                         int iterations, CopyMode mode) {
+// Times a bidirectional copy: src->dst on streamA (src_gpu) and dst->src on
+// streamB (dst_gpu), issued concurrently so both directions share the
+// wall-clock window. Returns max(elapsedA, elapsedB) in ms (the time for the
+// slower direction to finish), or -1.0 on error. The caller computes
+// aggregate full-duplex bandwidth as 2 * size / elapsed.
+double measureBidirCopyTime(void* src_ptr, void* dst_ptr, size_t size_bytes,
+                            int src_gpu, int dst_gpu, CopyMode mode) {
+    cudaStream_t streamA = nullptr, streamB = nullptr;
+    cudaEvent_t startA = nullptr, stopA = nullptr;
+    cudaEvent_t startB = nullptr, stopB = nullptr;
+
+    auto cleanup = [&]() {
+        if (streamA) cudaStreamDestroy(streamA);
+        if (streamB) cudaStreamDestroy(streamB);
+        if (startA) cudaEventDestroy(startA);
+        if (stopA) cudaEventDestroy(stopA);
+        if (startB) cudaEventDestroy(startB);
+        if (stopB) cudaEventDestroy(stopB);
+    };
+
+    // Per-GPU streams so the two copies run concurrently (separate copy
+    // engines / SMs). Each stream AND its events are created on the owning
+    // device — a cudaEvent_t recorded into a stream on a different device
+    // yields cudaErrorInvalidResourceHandle.
+    if (!checkCudaErrorReturn(cudaSetDevice(src_gpu),
+                              "Failed to set src device for bidir") ||
+        !checkCudaErrorReturn(cudaStreamCreate(&streamA),
+                              "Failed to create src stream") ||
+        !checkCudaErrorReturn(cudaEventCreate(&startA),
+                              "Failed to create startA") ||
+        !checkCudaErrorReturn(cudaEventCreate(&stopA),
+                              "Failed to create stopA") ||
+        !checkCudaErrorReturn(cudaSetDevice(dst_gpu),
+                              "Failed to set dst device for bidir") ||
+        !checkCudaErrorReturn(cudaStreamCreate(&streamB),
+                              "Failed to create dst stream") ||
+        !checkCudaErrorReturn(cudaEventCreate(&startB),
+                              "Failed to create startB") ||
+        !checkCudaErrorReturn(cudaEventCreate(&stopB),
+                              "Failed to create stopB")) {
+        cleanup();
+        return -1.0;
+    }
+
+    // Sync both devices so timing starts from a quiet point, then record both
+    // starts on their streams (the two starts are ~simultaneous).
+    if (!checkCudaErrorReturn(cudaSetDevice(src_gpu),
+                              "Failed to set src device for sync") ||
+        !checkCudaErrorReturn(cudaDeviceSynchronize(),
+                              "Failed to sync src device") ||
+        !checkCudaErrorReturn(cudaSetDevice(dst_gpu),
+                              "Failed to set dst device for sync") ||
+        !checkCudaErrorReturn(cudaDeviceSynchronize(),
+                              "Failed to sync dst device") ||
+        !checkCudaErrorReturn(cudaEventRecord(startA, streamA),
+                              "Failed to record startA") ||
+        !checkCudaErrorReturn(cudaEventRecord(startB, streamB),
+                              "Failed to record startB")) {
+        cleanup();
+        return -1.0;
+    }
+
+    // Direction A: src->dst (launched on src_gpu / streamA).
+    // Direction B: dst->src (launched on dst_gpu / streamB).
+    if (mode == CopyMode::Kernel) {
+        // launchCopyKernel sets the device itself and uses the given stream.
+        cudaError_t errA =
+            launchCopyKernel(dst_ptr, src_ptr, size_bytes, src_gpu, streamA);
+        cudaError_t errB =
+            launchCopyKernel(src_ptr, dst_ptr, size_bytes, dst_gpu, streamB);
+        if (errA != cudaSuccess || errB != cudaSuccess) {
+            std::cerr << "Bidir kernel launch failed (A=" << errA
+                      << " B=" << errB << ")" << std::endl;
+            cleanup();
+            return -1.0;
+        }
+    } else {
+        if (!checkCudaErrorReturn(cudaSetDevice(src_gpu),
+                                  "Failed to set src device for memcpy A") ||
+            !checkCudaErrorReturn(
+                cudaMemcpyAsync(dst_ptr, src_ptr, size_bytes,
+                                cudaMemcpyDeviceToDevice, streamA),
+                "Bidir memcpy A failed") ||
+            !checkCudaErrorReturn(cudaSetDevice(dst_gpu),
+                                  "Failed to set dst device for memcpy B") ||
+            !checkCudaErrorReturn(
+                cudaMemcpyAsync(src_ptr, dst_ptr, size_bytes,
+                                cudaMemcpyDeviceToDevice, streamB),
+                "Bidir memcpy B failed")) {
+            cleanup();
+            return -1.0;
+        }
+    }
+
+    // Record both stops and sync both. Execution errors surface at the syncs.
+    if (!checkCudaErrorReturn(cudaEventRecord(stopA, streamA),
+                              "Failed to record stopA") ||
+        !checkCudaErrorReturn(cudaEventRecord(stopB, streamB),
+                              "Failed to record stopB") ||
+        !checkCudaErrorReturn(cudaEventSynchronize(stopA),
+                              "Bidir copy A failed") ||
+        !checkCudaErrorReturn(cudaEventSynchronize(stopB),
+                              "Bidir copy B failed")) {
+        cleanup();
+        return -1.0;
+    }
+
+    float msA = 0.0f, msB = 0.0f;
+    if (!checkCudaErrorReturn(cudaEventElapsedTime(&msA, startA, stopA),
+                              "Failed to get elapsed A") ||
+        !checkCudaErrorReturn(cudaEventElapsedTime(&msB, startB, stopB),
+                              "Failed to get elapsed B")) {
+        cleanup();
+        return -1.0;
+    }
+
+    cleanup();
+    // Wall-clock for both directions to finish = the slower one.
+    return static_cast<double>(std::max(msA, msB));
+}
+
+BandwidthStats testCopyPerformance(int src_gpu, int dst_gpu,
+                                   size_t buffer_size_mb, int iterations,
+                                   CopyMode mode, Direction direction) {
+    bool bidir = (direction == Direction::Bidir);
     std::cout << "Buffer size: " << buffer_size_mb
-              << " MB | Iterations: " << iterations << std::endl;
+              << " MB | Iterations: " << iterations << " | Direction: "
+              << (bidir ? "bidirectional (aggregate)" : "unidirectional")
+              << std::endl;
 
     void *src_ptr, *dst_ptr;
     if (!checkCudaErrorReturn(cudaSetDevice(src_gpu),
                               "Failed to set source device for allocation")) {
-        return;
+        return BandwidthStats{};
     }
 
     if (!checkCudaErrorReturn(
             cudaMalloc(&src_ptr, buffer_size_mb * 1024 * 1024),
             "Failed to allocate source memory")) {
-        return;
+        return BandwidthStats{};
     }
 
     if (!checkCudaErrorReturn(
             cudaSetDevice(dst_gpu),
             "Failed to set destination device for allocation")) {
         cudaFree(src_ptr);
-        return;
+        return BandwidthStats{};
     }
 
     if (!checkCudaErrorReturn(
             cudaMalloc(&dst_ptr, buffer_size_mb * 1024 * 1024),
             "Failed to allocate destination memory")) {
         cudaFree(src_ptr);
-        return;
+        return BandwidthStats{};
     }
 
     // Initialize source buffer
@@ -310,7 +435,7 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
                               "Failed to set source device for memset")) {
         cudaFree(src_ptr);
         cudaFree(dst_ptr);
-        return;
+        return BandwidthStats{};
     }
 
     if (!checkCudaErrorReturn(
@@ -318,49 +443,70 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
             "Failed to initialize source buffer")) {
         cudaFree(src_ptr);
         cudaFree(dst_ptr);
-        return;
+        return BandwidthStats{};
+    }
+
+    // In bidirectional mode dst->src also copies, so initialize dst too (not
+    // strictly required for a bandwidth measurement, but avoids copying
+    // uninitialized memory).
+    if (bidir) {
+        if (!checkCudaErrorReturn(cudaSetDevice(dst_gpu),
+                                  "Failed to set dst device for memset") ||
+            !checkCudaErrorReturn(
+                cudaMemset(dst_ptr, 0x24, buffer_size_mb * 1024 * 1024),
+                "Failed to initialize dst buffer")) {
+            cudaFree(src_ptr);
+            cudaFree(dst_ptr);
+            return BandwidthStats{};
+        }
     }
 
     if (!checkCudaErrorReturn(cudaDeviceSynchronize(),
                               "Failed to synchronize device after memset")) {
         cudaFree(src_ptr);
         cudaFree(dst_ptr);
-        return;
+        return BandwidthStats{};
     }
 
-    // Warmup: one untimed copy matching the selected mode to prime the CUDA
-    // context, copy engine / kernel launch path, and event infrastructure, so
-    // the first timed iteration is not skewed by one-time setup costs. The
-    // result is discarded; errors are already reported via cerr by the measure
-    // helpers, and we abort if the warmup itself fails.
+    // Warmup: one untimed copy matching the selected mode/direction to prime
+    // the CUDA context, copy engine / kernel launch path, and event/stream
+    // infrastructure, so the first timed iteration is not skewed by one-time
+    // setup costs. Abort if the warmup itself fails.
+    size_t size_bytes = buffer_size_mb * 1024 * 1024;
     double warmup_time;
-    if (mode == CopyMode::Kernel) {
-        warmup_time = measureCopyTimeKernel(
-            dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024, src_gpu);
-    } else {
+    if (bidir) {
+        warmup_time = measureBidirCopyTime(src_ptr, dst_ptr, size_bytes,
+                                           src_gpu, dst_gpu, mode);
+    } else if (mode == CopyMode::Kernel) {
         warmup_time =
-            measureCopyTime(dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024,
-                            src_gpu, cudaMemcpyDeviceToDevice);
+            measureCopyTimeKernel(dst_ptr, src_ptr, size_bytes, src_gpu);
+    } else {
+        warmup_time = measureCopyTime(dst_ptr, src_ptr, size_bytes, src_gpu,
+                                      cudaMemcpyDeviceToDevice);
     }
     if (warmup_time <= 0) {
         std::cerr << "Warmup copy failed; aborting test" << std::endl;
         checkCudaErrorReturn(cudaFree(src_ptr), "Failed to free source memory");
         checkCudaErrorReturn(cudaFree(dst_ptr),
                              "Failed to free destination memory");
-        return;
+        return BandwidthStats{};
     }
 
     std::vector<double> copy_times;
+    // Per-iteration reported bandwidth: 2x in bidir (two buffers move).
+    double bwScale = bidir ? 2.0 : 1.0;
 
     for (int i = 0; i < iterations; i++) {
         double copy_time;
-        if (mode == CopyMode::Kernel) {
-            copy_time = measureCopyTimeKernel(
-                dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024, src_gpu);
-        } else {
+        if (bidir) {
+            copy_time = measureBidirCopyTime(src_ptr, dst_ptr, size_bytes,
+                                             src_gpu, dst_gpu, mode);
+        } else if (mode == CopyMode::Kernel) {
             copy_time =
-                measureCopyTime(dst_ptr, src_ptr, buffer_size_mb * 1024 * 1024,
-                                src_gpu, cudaMemcpyDeviceToDevice);
+                measureCopyTimeKernel(dst_ptr, src_ptr, size_bytes, src_gpu);
+        } else {
+            copy_time = measureCopyTime(dst_ptr, src_ptr, size_bytes, src_gpu,
+                                        cudaMemcpyDeviceToDevice);
         }
 
         if (copy_time > 0) {
@@ -368,7 +514,7 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
 
             if (i % 100 == 0 || i == iterations - 1) {
                 double bandwidth_gibps =
-                    (buffer_size_mb / 1024.0) / (copy_time / 1000.0);
+                    bwScale * (buffer_size_mb / 1024.0) / (copy_time / 1000.0);
                 std::cout << "   Iteration " << (i + 1) << "/" << iterations
                           << " → " << std::fixed << std::setprecision(2)
                           << bandwidth_gibps << " GiB/s" << std::endl;
@@ -376,10 +522,13 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
         }
     }
 
-    BandwidthStats stats = computeBandwidthStats(copy_times, buffer_size_mb);
+    BandwidthStats stats =
+        computeBandwidthStats(copy_times, buffer_size_mb, bidir);
     if (stats.valid) {
         std::cout << std::endl;
-        std::cout << "Performance Results:" << std::endl;
+        std::cout << "Performance Results"
+                  << (bidir ? " (aggregate, both directions)" : "") << ":"
+                  << std::endl;
         std::cout << "   ├─ Average bandwidth: " << std::fixed
                   << std::setprecision(2) << stats.avgGiBps << " GiB/s"
                   << std::endl;
@@ -397,6 +546,7 @@ void testCopyPerformance(int src_gpu, int dst_gpu, size_t buffer_size_mb,
     checkCudaErrorReturn(cudaFree(src_ptr), "Failed to free source memory");
     checkCudaErrorReturn(cudaFree(dst_ptr),
                          "Failed to free destination memory");
+    return stats;
 }
 
 // Print usage information
@@ -410,10 +560,18 @@ void printUsage(const char* program_name) {
         << "  -d, --dst-gpu NUM       Destination GPU ID (default: 1)\n"
         << "  -m, --mode memcpy|kernel\n"
         << "                          Copy method (default: memcpy)\n"
+        << "      --direction unidir|bidir\n"
+        << "                          unidir (default) or bidir (concurrent\n"
+        << "                          both-direction, reports aggregate BW)\n"
+        << "      --all-pairs         Sweep all i<j GPU pairs (ignores -s/-d)\n"
         << "  -h, --help              Show this help message\n"
         << "\n"
-        << "Example:\n"
+        << "Examples:\n"
         << "  " << program_name << " -i 200 -b 2000 -s 0 -d 1\n"
+        << "  " << program_name
+        << " --direction bidir -s 0 -d 1   # full-duplex aggregate BW\n"
+        << "  " << program_name
+        << " --all-pairs -i 20 -b 500      # topology sweep over all pairs\n"
         << std::endl;
 }
 
@@ -445,10 +603,18 @@ int main(int argc, char* argv[]) {
     std::cout << "   • Iterations: " << config.iterations << std::endl;
     std::cout << "   • Buffer size: " << config.buffer_size_mb << " MB"
               << std::endl;
-    std::cout << "   • Source GPU: " << config.src_gpu_id << std::endl;
-    std::cout << "   • Destination GPU: " << config.dst_gpu_id << std::endl;
-    std::cout << "   • Copy mode: "
+    if (config.allPairs) {
+        std::cout << "   • Mode: all-pairs sweep" << std::endl;
+    } else {
+        std::cout << "   • Source GPU: " << config.src_gpu_id << std::endl;
+        std::cout << "   • Destination GPU: " << config.dst_gpu_id << std::endl;
+    }
+    std::cout << "   • Copy method: "
               << (config.mode == CopyMode::Kernel ? "kernel" : "memcpy")
+              << std::endl;
+    std::cout << "   • Direction: "
+              << (config.direction == Direction::Bidir ? "bidir (aggregate)"
+                                                       : "unidir")
               << std::endl;
     std::cout << std::endl;
 
@@ -463,6 +629,63 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    size_t buffer_size = config.buffer_size_mb;
+
+    if (config.allPairs) {
+        // Sweep all i<j GPU pairs for topology validation. -s/-d are ignored.
+        int numPairs = deviceCount * (deviceCount - 1) / 2;
+        std::cout << "Sweeping all GPU pairs (i<j): " << deviceCount
+                  << " GPUs, " << numPairs << " pairs" << std::endl;
+        std::cout << std::endl;
+
+        struct PairResult {
+            int a, b;
+            double avgGiBps;
+            bool valid;
+        };
+        std::vector<PairResult> results;
+
+        for (int i = 0; i < deviceCount; i++) {
+            for (int j = i + 1; j < deviceCount; j++) {
+                std::cout << "═══ Pair GPU " << i << " ↔ GPU " << j << " ═══"
+                          << std::endl;
+                if (!checkP2PSupport(i, j)) {
+                    std::cout << "  P2P not supported, skipping" << std::endl
+                              << std::endl;
+                    results.push_back({i, j, 0.0, false});
+                    continue;
+                }
+                if (!enableP2PAccess(i, j)) {
+                    std::cout << "  Failed to enable P2P, skipping" << std::endl
+                              << std::endl;
+                    results.push_back({i, j, 0.0, false});
+                    continue;
+                }
+                BandwidthStats s =
+                    testCopyPerformance(i, j, buffer_size, config.iterations,
+                                        config.mode, config.direction);
+                results.push_back({i, j, s.avgGiBps, s.valid});
+                std::cout << std::endl;
+            }
+        }
+
+        // Compact summary.
+        std::cout << "═══════════ All-Pairs Summary ═══════════" << std::endl;
+        for (const auto& r : results) {
+            std::cout << "  GPU " << r.a << " ↔ GPU " << r.b << ": ";
+            if (r.valid) {
+                std::cout << std::fixed << std::setprecision(2) << r.avgGiBps
+                          << " GiB/s avg" << std::endl;
+            } else {
+                std::cout << "n/a (no P2P or failed)" << std::endl;
+            }
+        }
+        std::cout << std::endl;
+        std::cout << "✓ NVLink all-pairs sweep completed!" << std::endl;
+        return 0;
+    }
+
+    // Single-pair mode.
     // Validate GPU IDs
     if (config.src_gpu_id >= deviceCount || config.dst_gpu_id >= deviceCount) {
         std::cerr << "Error: GPU ID out of range. Available GPUs: 0-"
@@ -491,12 +714,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Run test with configured buffer size
-    size_t buffer_size = config.buffer_size_mb;
-
-    // Test copy performance (cudaMemcpyDeviceToDevice or kernel-based)
+    // Test copy performance (cudaMemcpyDeviceToDevice or kernel-based;
+    // unidirectional or bidirectional).
     testCopyPerformance(src_gpu, dst_gpu, buffer_size, config.iterations,
-                        config.mode);
+                        config.mode, config.direction);
 
     // Test completed successfully
     std::cout << std::endl;

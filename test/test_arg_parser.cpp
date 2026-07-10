@@ -37,6 +37,7 @@ TEST(MonitorArgs, Defaults) {
     EXPECT_TRUE(args.continuous);
     EXPECT_FALSE(args.verbose);
     EXPECT_EQ(args.format, OutputFormat::Text);
+    EXPECT_TRUE(args.gpuFilter.empty());
     EXPECT_TRUE(args.outputFilename.empty());
     EXPECT_FALSE(args.helpRequested);
 }
@@ -197,6 +198,46 @@ TEST(MonitorArgs, FormatInvalidRejected) {
 
 TEST(MonitorArgs, FormatMissingValueRejected) {
     Argv a{"nvlink_monitor", "--format"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_FALSE(args.ok);
+}
+
+TEST(MonitorArgs, GpusSingleShort) {
+    Argv a{"nvlink_monitor", "-g", "3"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.gpuFilter, std::vector<int>({3}));
+}
+
+TEST(MonitorArgs, GpusMultipleLong) {
+    Argv a{"nvlink_monitor", "--gpus", "0,1,3"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.gpuFilter, std::vector<int>({0, 1, 3}));
+}
+
+TEST(MonitorArgs, GpusToleratesWhitespace) {
+    Argv a{"nvlink_monitor", "--gpus", "0, 1, 3"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_TRUE(args.ok);
+    EXPECT_EQ(args.gpuFilter, std::vector<int>({0, 1, 3}));
+}
+
+TEST(MonitorArgs, GpusInvalidTokenRejected) {
+    Argv a{"nvlink_monitor", "--gpus", "0,a,3"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_FALSE(args.ok);
+    EXPECT_FALSE(args.errorMessage.empty());
+}
+
+TEST(MonitorArgs, GpusNegativeRejected) {
+    Argv a{"nvlink_monitor", "--gpus", "0,-1"};
+    auto args = parseMonitorArgs(a.argc(), a.argv());
+    EXPECT_FALSE(args.ok);
+}
+
+TEST(MonitorArgs, GpusMissingValueRejected) {
+    Argv a{"nvlink_monitor", "--gpus"};
     auto args = parseMonitorArgs(a.argc(), a.argv());
     EXPECT_FALSE(args.ok);
 }

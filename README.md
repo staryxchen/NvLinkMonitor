@@ -1,9 +1,55 @@
-# 🚀 NVLink Monitor
+# 🚀 NvLinkMonitor
 
-A comprehensive toolkit for monitoring and testing NVIDIA NVLink bandwidth and status. This project consists of two main components:
+**Real-time per-link NVLink bandwidth monitor + inter-GPU P2P benchmark for NVIDIA multi-GPU systems.** A lightweight C++ toolkit for validating NVLink connectivity and diagnosing link saturation on AI-training and HPC clusters.
 
-- 📊 **NVLink Monitor**: A real-time monitoring tool for NVLink bandwidth
-- ⚡ **NVLink Bandwidth Test**: A performance testing tool for NVLink bandwidth measurement
+[![CI](https://github.com/staryxchen/NvLinkMonitor/actions/workflows/ci.yml/badge.svg)](https://github.com/staryxchen/NvLinkMonitor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Stars](https://img.shields.io/github/stars/staryxchen/NvLinkMonitor?style=social)
+![Platform](https://img.shields.io/badge/platform-Linux%20x86__64-blue)
+
+> **Why?** `nvidia-smi` shows GPU utilization but not per-link NVLink throughput. `dcgmi` is heavyweight to deploy. This tool gives you a single dependency-light binary that reports per-link TX/RX bandwidth in real time — plus a built-in inter-GPU copy benchmark (`cudaMemcpy` or `__global__` kernel, unidir or **bidir full-duplex**) to generate load and validate topology. Ideal for bring-up of multi-GPU LLM training nodes.
+
+## ✨ Features
+
+- 📊 **Per-link NVLink bandwidth monitoring** via NVML — the monitor is a single g++ binary, no CUDA toolkit needed
+- ⚡ **Inter-GPU P2P benchmark** — copy-engine memcpy or `__global__` kernel, unidirectional or **bidirectional** (aggregate full-duplex bandwidth)
+- 🕸️ **All-pairs topology sweep** — test every GPU pair, skip unsupported, print a summary
+- 🤖 **Machine-readable output** — `--format csv|json`, status on stderr so stdout stays clean for pipes
+- 🎯 **GPU filtering** — `--gpus 0,1,3` to focus on a subset
+- 🧪 **81 unit tests**, CI-gated clang-format; pure-logic paths build and test without a GPU
+
+## 🖼️ Demo
+
+```text
+$ sudo ./build/nvlink_monitor --verbose
++--- NvLink Monitor (Detailed) --- 2026-07-10 08:29:06 ---+
+GPU 0 (18 links) Total RX: 368.4 GiB/s, TX: 368.4 GiB/s
+  Link  0 RX:  20.5 GiB/s, TX:  20.5 GiB/s
+  Link  1 RX:  20.5 GiB/s, TX:  20.5 GiB/s
+  ...
+
+$ ./build/nvlink_bw_test --direction bidir -s 0 -d 1
+   • Direction: bidir (aggregate)
+   ├─ Average bandwidth: 730.06 GiB/s      # ~2× unidir (368.76) → full-duplex
+
+$ ./build/nvlink_bw_test --all-pairs -i 20 -b 500
+═══════════ All-Pairs Summary ═══════════
+  GPU 0 ↔ GPU 1: 364.13 GiB/s avg
+  GPU 0 ↔ GPU 2: 363.10 GiB/s avg
+  ...
+```
+
+> 📹 A terminal recording ([asciinema](https://asciinema.org/) / [terminalizer](https://github.com/faressoft/terminalizer)) makes a great first impression — consider embedding one here.
+
+## ⚡ Quick start
+
+```bash
+./install-deps.sh          # NVML headers (+ CUDA toolkit only for the benchmark)
+make monitor               # monitor only: g++, no CUDA toolkit needed
+sudo ./build/nvlink_monitor --verbose
+```
+
+---
 
 ## Project Structure
 
@@ -219,25 +265,6 @@ A performance testing tool for measuring NVLink bandwidth between GPUs.
 ./build/nvlink_bw_test -i 200 -b 2000 -s 0 -d 1 -m kernel
 ./build/nvlink_bw_test --all-pairs --direction bidir -i 20 -b 500
 ```
-
-## ✨ Features
-
-### 📊 NVLink Monitor Features:
-- Real-time NVLink bandwidth monitoring
-- Individual link bandwidth tracking
-- Continuous and single-shot monitoring modes
-- Configurable monitoring intervals
-- File output support
-
-### ⚡ NVLink Bandwidth Test Features:
-- Inter-GPU memory copy performance testing
-- Two copy methods: `cudaMemcpyDeviceToDevice` (copy engine) and `__global__` kernel (SM load/stores over P2P)
-- Configurable buffer sizes and iteration counts
-- Source and destination GPU selection
-- One untimed warmup copy before the timed loop (primes the CUDA context / copy engine / kernel launch path so the first timed iteration is not skewed by one-time setup)
-- Bidirectional mode (`--direction bidir`): concurrent both-direction copies on per-GPU streams, reporting aggregate full-duplex bandwidth
-- All-pairs topology sweep (`--all-pairs`): tests every i<j GPU pair, skips unsupported pairs, prints a summary
-- Performance statistics calculation
 
 ## 🔧 Technical Details
 

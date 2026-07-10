@@ -36,6 +36,7 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
         {"buffer-size", required_argument, 0, 'b'},
         {"src-gpu", required_argument, 0, 's'},
         {"dst-gpu", required_argument, 0, 'd'},
+        {"mode", required_argument, 0, 'm'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}};
 
@@ -46,7 +47,7 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
     int opt;
     int option_index = 0;
 
-    while ((opt = getopt_long(argc, argv, "i:b:s:d:h", long_options,
+    while ((opt = getopt_long(argc, argv, "i:b:s:d:m:h", long_options,
                               &option_index)) != -1) {
         switch (opt) {
             case 'i': {
@@ -108,6 +109,20 @@ TestConfig parseBwTestArgs(int argc, char* argv[]) {
                     return config;
                 }
                 config.dst_gpu_id = static_cast<int>(val);
+                break;
+            }
+            case 'm': {
+                std::string m = optarg;
+                if (m == "memcpy") {
+                    config.mode = CopyMode::Memcpy;
+                } else if (m == "kernel") {
+                    config.mode = CopyMode::Kernel;
+                } else {
+                    config.ok = false;
+                    config.errorMessage = "invalid mode: " + m +
+                                          " (expected 'memcpy' or 'kernel')";
+                    return config;
+                }
                 break;
             }
             case 'h':

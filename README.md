@@ -213,6 +213,7 @@ A performance testing tool for measuring NVLink bandwidth between GPUs.
 - Two copy methods: `cudaMemcpyDeviceToDevice` (copy engine) and `__global__` kernel (SM load/stores over P2P)
 - Configurable buffer sizes and iteration counts
 - Source and destination GPU selection
+- One untimed warmup copy before the timed loop (primes the CUDA context / copy engine / kernel launch path so the first timed iteration is not skewed by one-time setup)
 - Performance statistics calculation
 
 ## 🔧 Technical Details

@@ -1,10 +1,11 @@
 #include "nvlink_monitor.h"
 
-#include "arg_parser.h"
-#include "bandwidth_calc.h"
+#include <sched.h>
 
 #include <stdexcept>
-#include <sched.h>
+
+#include "arg_parser.h"
+#include "bandwidth_calc.h"
 
 // Global flag for signal handling
 volatile bool g_running = true;
@@ -134,11 +135,9 @@ std::vector<GPUMonitorResult> NvLinkMonitor::getNvLinkData() {
 
                 // Try Field Values API first
                 nvmlFieldValue_t fieldValues[2];
-                fieldValues[0].fieldId =
-                    NVML_FI_DEV_NVLINK_THROUGHPUT_DATA_TX;
+                fieldValues[0].fieldId = NVML_FI_DEV_NVLINK_THROUGHPUT_DATA_TX;
                 fieldValues[0].scopeId = link;
-                fieldValues[1].fieldId =
-                    NVML_FI_DEV_NVLINK_THROUGHPUT_DATA_RX;
+                fieldValues[1].fieldId = NVML_FI_DEV_NVLINK_THROUGHPUT_DATA_RX;
                 fieldValues[1].scopeId = link;
 
                 nvmlReturn_t fieldResult =
@@ -165,10 +164,9 @@ std::vector<GPUMonitorResult> NvLinkMonitor::getNvLinkData() {
                         NVML_SUCCESS) {
                         linkData.rxBytes = rxCounter;
                         linkData.txBytes = txCounter;
-                        std::cout
-                            << "  Link " << link
-                            << " (Traditional): TX=" << linkData.txBytes
-                            << " RX=" << linkData.rxBytes << std::endl;
+                        std::cout << "  Link " << link
+                                  << " (Traditional): TX=" << linkData.txBytes
+                                  << " RX=" << linkData.rxBytes << std::endl;
                     } else {
                         std::cerr
                             << "Failed to get utilization counters for GPU "
@@ -194,8 +192,7 @@ std::ostream& NvLinkMonitor::getOutputStream() {
 std::vector<GPUMonitorResult> NvLinkMonitor::calculateBandwidth(
     const std::vector<GPUMonitorResult>& snapshot1,
     const std::vector<GPUMonitorResult>& snapshot2, double timeDelta) {
-    return ::calculateBandwidth(snapshot1, snapshot2, timeDelta,
-                                verboseOutput);
+    return ::calculateBandwidth(snapshot1, snapshot2, timeDelta, verboseOutput);
 }
 
 void NvLinkMonitor::formatGPUResult(
@@ -256,24 +253,25 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
     std::cout << "Starting continuous monitoring, interval: " << interval << "s"
               << std::endl;
     std::cout << "Press Ctrl+C to stop monitoring" << std::endl;
-    
-    // Set high priority for more accurate timing
-    #ifdef _GNU_SOURCE
+
+// Set high priority for more accurate timing
+#ifdef _GNU_SOURCE
     // Try to set real-time priority for better timing accuracy
     struct sched_param param;
     param.sched_priority = sched_get_priority_max(SCHED_FIFO);
     if (sched_setscheduler(0, SCHED_FIFO, &param) == 0) {
-        std::cout << "Set real-time scheduling priority for improved accuracy" << std::endl;
+        std::cout << "Set real-time scheduling priority for improved accuracy"
+                  << std::endl;
     }
-    #endif
+#endif
 
     auto lastSnapshot = getNvLinkData();
     auto lastTime = std::chrono::high_resolution_clock::now();
 
     while (g_running) {
         // Use microsecond precision for sleep to improve timing accuracy
-        std::this_thread::sleep_for(
-            std::chrono::microseconds(static_cast<long long>(interval * 1000000)));
+        std::this_thread::sleep_for(std::chrono::microseconds(
+            static_cast<long long>(interval * 1000000)));
 
         if (!g_running) break;
 
@@ -284,14 +282,17 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
         auto timeDiff = std::chrono::duration_cast<std::chrono::nanoseconds>(
             currentTime - lastTime);
         double actualInterval =
-            timeDiff.count() / 1000000000.0;  // Convert to seconds with nanosecond precision
+            timeDiff.count() /
+            1000000000.0;  // Convert to seconds with nanosecond precision
 
-        // Check for minimum time interval to avoid division by very small numbers
-        const double MIN_INTERVAL = 0.000001; // 1 microsecond minimum
+        // Check for minimum time interval to avoid division by very small
+        // numbers
+        const double MIN_INTERVAL = 0.000001;  // 1 microsecond minimum
         if (actualInterval < MIN_INTERVAL) {
             if (verboseOutput) {
-                std::cerr << "Warning: Time interval too small (" << actualInterval 
-                          << "s), using minimum interval" << std::endl;
+                std::cerr << "Warning: Time interval too small ("
+                          << actualInterval << "s), using minimum interval"
+                          << std::endl;
             }
             actualInterval = MIN_INTERVAL;
         }
@@ -302,8 +303,9 @@ void NvLinkMonitor::runContinuousMonitoring(double interval) {
         // Add timing precision information in verbose mode
         if (verboseOutput) {
             formatDetailedGPUResult(results);
-            getOutputStream() << "  [Timing: " << std::fixed << std::setprecision(6) 
-                             << actualInterval << "s]" << std::endl;
+            getOutputStream()
+                << "  [Timing: " << std::fixed << std::setprecision(6)
+                << actualInterval << "s]" << std::endl;
         } else {
             formatGPUResult(results);
         }

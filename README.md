@@ -10,13 +10,18 @@ A comprehensive toolkit for monitoring and testing NVIDIA NVLink bandwidth and s
 ```
 NvLinkMonitor/
 ├── monitor/                        # NVLink monitoring tool
-│   ├── nvlink_monitor.cpp          # Main monitoring implementation
-│   └── nvlink_monitor.h            # Monitoring tool headers
+│   ├── nvlink_monitor.{cpp,h}      # Monitor class + main()
+│   ├── bandwidth_calc.{cpp,h}      # Bandwidth calculation logic (extracted)
+│   └── arg_parser.{cpp,h}          # CLI argument parsing (extracted)
 ├── example/                        # NVLink bandwidth testing tool
-│   └── nvlink_bw_test.cpp          # Bandwidth test implementation
-├── build/                          # Build output directory
-├── Makefile                        # Main build configuration
+│   ├── nvlink_bw_test.cpp          # Bandwidth test main()
+│   ├── bw_stats.{cpp,h}            # Bandwidth stats aggregation (extracted)
+│   └── arg_parser.{cpp,h}          # CLI argument parsing (extracted)
+├── test/                           # GoogleTest unit tests (no GPU needed)
+├── .github/workflows/ci.yml        # CI: format check + unit tests
+├── Makefile                        # Build configuration
 ├── install-deps.sh                 # Dependency installation script
+├── .clang-format                   # clang-format style (Google, 4-space)
 └── README.md                       # This file
 ```
 
@@ -69,6 +74,23 @@ The executables will be created in the `build/` directory:
 - `build/nvlink_monitor` - NVLink monitoring tool
 - `build/nvlink_bw_test` - NVLink bandwidth test tool
 
+### 🧪 Testing
+
+Unit tests use [GoogleTest](https://github.com/google/googletest) and run **without a GPU** — the test binary links only the extracted pure-logic modules (`bandwidth_calc`, `arg_parser`, `bw_stats`) plus gtest, with no NVML/CUDA library dependencies.
+
+```bash
+# Run unit tests (builds the test binary first)
+make test
+
+# Apply clang-format in place to all sources
+make format
+
+# Fail if any source is not clang-format-clean (CI gate)
+make check-format
+```
+
+CI (`.github/workflows/ci.yml`) runs `make check-format` and `make test` on ubuntu-22.04 for every push and pull request. The GPU binaries themselves are not built in CI (they require a CUDA toolkit and driver).
+
 ## 🧩 Components
 
 ### 1. 📊 NVLink Monitor (`monitor/`)
@@ -82,27 +104,27 @@ A real-time monitoring tool for NVLink bandwidth and status.
 
 #### Continuous monitoring:
 ```bash
-./build/nvlink_monitor -continuous true
+./build/nvlink_monitor --continuous true
 ```
 
 #### Single monitoring:
 ```bash
-./build/nvlink_monitor -continuous false
+./build/nvlink_monitor --continuous false
 ```
 
 #### Custom interval (e.g., 0.5 seconds):
 ```bash
-./build/nvlink_monitor -interval 0.5
+./build/nvlink_monitor --interval 0.5
 ```
 
 #### Detailed NvLink output:
 ```bash
-./build/nvlink_monitor -verbose
+./build/nvlink_monitor --verbose
 ```
 
 #### Combined options:
 ```bash
-./build/nvlink_monitor -continuous false -interval 0.5 -verbose
+./build/nvlink_monitor --continuous false --interval 0.5 --verbose
 ```
 
 #### Output to file:
